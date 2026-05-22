@@ -1,17 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite' // <-- NOVA LINHA
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [
     react(),
-    tailwindcss(), // <-- NOVA LINHA
+    tailwindcss(),
   ],
   server: {
-    watch: {
-      usePolling: true
-    },
     host: true,
-    port: 5173
+    allowedHosts: true,
+    port: 5173,
+    watch: {
+      usePolling: true,
+    }
   }
 })
