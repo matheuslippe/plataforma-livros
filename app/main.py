@@ -9,6 +9,21 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Plataforma de Livros")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+# ... (seu código app = FastAPI(...) já existe aqui)
+
+# --- Configuração de CORS (Liberando o Frontend) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "*"
+    ],  # Na vida real colocamos o link do site, aqui liberamos tudo para teste local
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --- O Cadeado ---
 # Isso diz ao FastAPI onde os usuários pegam o token
 cadeado = OAuth2PasswordBearer(tokenUrl="login")

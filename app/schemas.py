@@ -25,7 +25,6 @@ class UsuarioResposta(BaseModel):
 class LivroCriar(BaseModel):
     titulo: str
     sinopse: str
-    autor_id: int
     url_capa: Optional[str] = None
 
 
