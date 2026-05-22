@@ -1,12 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite' // <-- NOVA LINHA
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    tailwindcss(), // <-- NOVA LINHA
+  ],
   server: {
-    host: true,
     watch: {
-      usePolling: true, // Força o Docker a procurar mudanças nos arquivos
-    }
+      usePolling: true
+    },
+    host: true,
+    port: 5173
   }
 })

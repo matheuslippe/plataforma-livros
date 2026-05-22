@@ -25,7 +25,7 @@ class UsuarioResposta(BaseModel):
 class LivroCriar(BaseModel):
     titulo: str
     sinopse: str
-    url_capa: Optional[str] = None
+    url_capa: str | None = None
 
 
 class LivroResposta(BaseModel):
@@ -33,6 +33,7 @@ class LivroResposta(BaseModel):
     titulo: str
     sinopse: str
     autor_id: int
+    url_capa: str | None = None
 
     class Config:
         from_attributes = True

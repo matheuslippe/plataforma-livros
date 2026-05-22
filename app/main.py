@@ -5,11 +5,24 @@ from jose import jwt, JWTError
 from . import models, schemas, security
 from .database import engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import random
+import os
+import shutil
+import time
+from fastapi.staticfiles import StaticFiles
+from fastapi import UploadFile, File
+import uuid
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Plataforma de Livros")
+
+# Cria uma pasta "invisível" para o auto-reload não reiniciar a API
+os.makedirs(".capas", exist_ok=True)
+
+# Avisa que tudo que está na URL /static vai puxar dessa pasta .capas
+app.mount("/static", StaticFiles(directory=".capas"), name="static")
 
 # --- Configuração de CORS (Liberando o Frontend) ---
 app.add_middleware(
@@ -283,3 +296,26 @@ def resetar_senha(dados: schemas.ResetSenha, db: Session = Depends(get_db)):
     del codigos_recuperacao[dados.email]  # Apaga o código após o uso
 
     return {"mensagem": "Senha atualizada com sucesso!"}
+
+
+# --- NOVA ROTA: O Entregador de Imagens ---
+@app.get("/capas/{nome_arquivo}")
+def obter_capa(nome_arquivo: str):
+    caminho = f".capas/{nome_arquivo}"
+    if os.path.exists(caminho):
+        return FileResponse(caminho)
+    raise HTTPException(status_code=404, detail="Capa não encontrada")
+
+
+# --- ROTA ATUALIZADA: O Recebedor de Imagens ---
+@app.post("/upload-capa")
+def upload_capa(file: UploadFile = File(...)):
+    extensao = file.filename.split(".")[-1]
+    nome_ficheiro = f"{int(time.time())}_{uuid.uuid4().hex[:8]}.{extensao}"
+    caminho = f".capas/{nome_ficheiro}"
+
+    with open(caminho, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # ATENÇÃO: A URL agora aponta para a nossa rota nova /capas/ (sem o static)
+    return {"url_capa": f"http://localhost:8000/capas/{nome_ficheiro}"}
