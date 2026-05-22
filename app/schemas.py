@@ -58,3 +58,13 @@ class CapituloResposta(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PedidoRecuperacao(BaseModel):
+    email: str
+
+
+class ResetSenha(BaseModel):
+    email: str
+    codigo: str
+    nova_senha: str
