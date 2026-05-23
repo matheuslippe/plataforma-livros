@@ -16,14 +16,6 @@ O Páginas é uma plataforma Full Stack desenvolvida para democratizar a escrita
 * **Orquestração:** Docker & Docker Compose.
 * **Segurança:** Passlib/Bcrypt para senhas e JWT para tokens de sessão.
 
-## Estrutura do Projeto
-```text
-plataforma-livros/
-├── app/              # Código fonte do Backend (FastAPI)
-├── frontend-livros/  # Código fonte do Frontend (React)
-├── docker-compose.yml# Orquestração de serviços
-└── requirements.txt  # Dependências do Python
-```
 
 ## Como Executar
 ### Pré-requisitos
