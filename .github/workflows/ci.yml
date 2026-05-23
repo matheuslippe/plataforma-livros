@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r ../requirements.txt
       - name: Run Tests
-        run: pytest # Assumindo que você tem pytest instalado
+        run: pytest tests/ --tb=short -v
 
   frontend-test:
     runs-on: ubuntu-latest
