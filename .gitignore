@@ -1,6 +1,6 @@
 # Ignorar pastas de cache do Python
 __pycache__/
 *.pyc
-
+.env
 # Ignorar os dados do banco de dados local
 postgres_data/

@@ -1,21 +1,24 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 import os
+from urllib.parse import quote_plus
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 
-# Puxa o endereço do banco de dados lá do docker-compose.yml
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://admin:senha_segura@db:5432/livros_db"
-)
+usuario = os.getenv("POSTGRES_USER", "admin").strip()
+senha_crua = os.getenv("POSTGRES_PASSWORD", "M81h39s4").strip()
+banco = os.getenv("POSTGRES_DB", "livros_db").strip()
 
-# Cria o motor de conexão
+# Isso transforma caracteres especiais como '@' em códigos seguros (ex: '%40')
+senha_segura = quote_plus(senha_crua)
+
+# Agora a URL nunca vai quebrar, não importa qual seja a sua senha
+SQLALCHEMY_DATABASE_URL = f"postgresql://{usuario}:{senha_segura}@db:5432/{banco}"
+
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base para criarmos nossas tabelas depois
 Base = declarative_base()
 
 
-# Função para abrir e fechar a conexão a cada pedido do aplicativo
 def get_db():
     db = SessionLocal()
     try:

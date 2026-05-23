@@ -5,15 +5,25 @@ from typing import Optional
 
 
 class UsuarioCriar(BaseModel):
-    nome: str
+    username: str
+    nome_perfil: str
     email: str
     senha: str
 
 
 class UsuarioResposta(BaseModel):
     id: int
-    nome: str
+    username: str
+    nome_perfil: str
     email: str
+
+    class Config:
+        from_attributes = True
+
+
+class AutorResposta(BaseModel):
+    username: str
+    nome_perfil: str
 
     class Config:
         from_attributes = True
@@ -26,6 +36,13 @@ class LivroCriar(BaseModel):
     titulo: str
     sinopse: str
     url_capa: str | None = None
+    idioma: str
+    tipo_historia: str
+    tags: str | None = None
+    direitos_autorais: str
+    classificacao_adulto: bool = False
+    personagens_principais: str | None = None
+    publico_alvo: str
 
 
 class LivroResposta(BaseModel):
@@ -34,6 +51,16 @@ class LivroResposta(BaseModel):
     sinopse: str
     autor_id: int
     url_capa: str | None = None
+    idioma: str
+    tipo_historia: str
+    tags: str | None = None
+    direitos_autorais: str
+    classificacao_adulto: bool
+    personagens_principais: str | None = None
+    publico_alvo: str
+    visualizacoes: int
+    curtidas_totales: int
+    autor: AutorResposta
 
     class Config:
         from_attributes = True
@@ -55,10 +82,14 @@ class CapituloResposta(BaseModel):
     titulo_do_capitulo: str
     conteudo_texto: str
     ordem_leitura: int
-    status: str
+    visualizacoes: int
+    curtidas_totales: int
 
     class Config:
         from_attributes = True
+
+
+# --- Esquemas de Segurança e Recuperação ---
 
 
 class PedidoRecuperacao(BaseModel):

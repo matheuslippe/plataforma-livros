@@ -1,27 +1,31 @@
-version: '3.8'
-
 services:
   api:
     build: .
+    restart: on-failure
     ports:
       - "8000:8000"
     volumes:
       - ./app:/code/app
+    environment:
+      # O Python monta a URL dinamicamente e sem quebrar
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=M81h39s4
+      - POSTGRES_DB=livros_db
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - db
 
   db:
-    image: postgres:15-alpine
+    image: postgres:15
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: senha_segura
-      POSTGRES_DB: livros_db
+      # Passamos a senha diretamente para o Postgres parar de chorar
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=M81h39s4
+      - POSTGRES_DB=livros_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
   frontend:
     image: node:24-alpine
     working_dir: /app
