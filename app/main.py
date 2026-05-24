@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
-from . import models, schemas, security
+from app import models, schemas, security
 from .database import engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

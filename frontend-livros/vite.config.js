@@ -9,7 +9,7 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    allowedHosts: true,
+    allowedHosts: ["suzanna-unhusbanded-gala.ngrok-free.dev"],
     port: 5173,
     watch: {
       usePolling: true,
