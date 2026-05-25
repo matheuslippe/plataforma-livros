@@ -50,6 +50,12 @@ function App() {
   const [tagsEmAlta, setTagsEmAlta] = useState([])
   const [livrosPorTag, setLivrosPorTag] = useState({})
 
+  // --- Estados de Biblioteca e Listas ---
+  const [minhasListas, setMinhasListas] = useState([])
+  const [modalNovaLista, setModalNovaLista] = useState(false)
+  const [formLista, setFormLista] = useState({ nome: '', descricao: '' })
+  const [modalSalvarLivro, setModalSalvarLivro] = useState(false)
+
   // ==========================================
   // EFEITOS DE INICIALIZAÇÃO E CONTROLE
   // ==========================================
@@ -59,10 +65,12 @@ function App() {
 
   useEffect(() => {
     carregarMeuPerfil()
+    buscarMinhasListas()
   }, [token])
 
   useEffect(() => {
     if (abaAtual === 'explorar') carregarExplorar();
+    if (abaAtual === 'biblioteca') buscarMinhasListas();
   }, [abaAtual])
 
   const exigirLogin = (acao_permitida) => {
@@ -122,6 +130,7 @@ function App() {
     setMensagem('');
     setTelaLivroAberta(false);
     setAbaAtual('inicio');
+    setMinhasListas([]);
     buscarLivros();
   }
 
@@ -357,7 +366,83 @@ function App() {
     } catch (e) { }
   }
 
+  // ==========================================
+  // LÓGICA DE API - LISTAS DE LEITURA
+  // ==========================================
+  const buscarMinhasListas = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/usuarios/me/listas`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setMinhasListas(await res.json());
+    } catch (e) { }
+  }
+
+  const criarLista = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_URL}/listas/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(formLista)
+      });
+      if (res.ok) {
+        setFormLista({ nome: '', descricao: '' });
+        setModalNovaLista(false);
+        buscarMinhasListas();
+      }
+    } catch (e) { }
+  }
+
+  const alterarLivroNaLista = async (listaId, adicionar = true) => {
+    if (!livroSelecionado) return;
+    const acao = adicionar ? 'adicionar' : 'remover';
+    const metodo = adicionar ? 'POST' : 'DELETE';
+
+    try {
+      const res = await fetch(`${API_URL}/listas/${listaId}/${acao}/${livroSelecionado.id}`, {
+        method: metodo,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        buscarMinhasListas();
+        if (adicionar) setModalSalvarLivro(false);
+      } else {
+        const erro = await res.json();
+        alert(erro.detail || "Erro ao modificar a lista.");
+      }
+    } catch (e) { }
+  }
+
+  const verificaSeLivroEstaNaLista = (lista) => {
+    if (!livroSelecionado) return false;
+    return lista.livros.some(l => l.id === livroSelecionado.id);
+  }
+
   const livrosRecentes = [...livros].reverse();
+
+  // ==========================================
+  // RENDERIZAÇÃO: MODAL NOVA LISTA
+  // ==========================================
+  const renderizarModalNovaLista = () => {
+    if (!modalNovaLista) return null;
+    return (
+      <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl animate-fade-in">
+          <h3 className="text-xl font-bold mb-4 text-gray-900">Nova Lista</h3>
+          <form onSubmit={criarLista} className="flex flex-col gap-3">
+            <input type="text" placeholder="Nome da lista (ex: Favoritos)" value={formLista.nome} onChange={e => setFormLista({ ...formLista, nome: e.target.value })} required className="p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#5a31f4] text-sm" />
+            <textarea placeholder="Descrição (opcional)" value={formLista.descricao} onChange={e => setFormLista({ ...formLista, descricao: e.target.value })} className="p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#5a31f4] text-sm h-20" />
+            <div className="flex gap-2 mt-2">
+              <button type="button" onClick={() => setModalNovaLista(false)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm">Cancelar</button>
+              <button type="submit" className="flex-1 py-3 bg-[#5a31f4] text-white font-bold rounded-xl text-sm shadow-md">Criar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   // ==========================================
   // RENDERIZAÇÃO: TELA DE LOGIN 
@@ -414,13 +499,7 @@ function App() {
               {tags.map((tag, index) => (
                 <span key={index} className="bg-[#f3efff] text-[#5a31f4] px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm">
                   {tag}
-                  <button
-                    type="button"
-                    onClick={() => setTags(tags.filter((_, i) => i !== index))}
-                    className="hover:text-red-500 font-bold text-sm"
-                  >
-                    &times;
-                  </button>
+                  <button type="button" onClick={() => setTags(tags.filter((_, i) => i !== index))} className="hover:text-red-500 font-bold text-sm">&times;</button>
                 </span>
               ))}
               <input
@@ -432,10 +511,7 @@ function App() {
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     const novaTag = tagInput.trim();
-                    if (novaTag && !tags.includes(novaTag)) {
-                      setTags([...tags, novaTag]);
-                      setTagInput('');
-                    }
+                    if (novaTag && !tags.includes(novaTag)) { setTags([...tags, novaTag]); setTagInput(''); }
                   }
                 }}
                 className="bg-transparent outline-none flex-1 min-w-[150px] text-sm p-1"
@@ -481,11 +557,49 @@ function App() {
     const livroAtualizado = livros.find(l => l.id === livroSelecionado.id) || livroSelecionado;
 
     return (
-      <div className="min-h-screen bg-white text-gray-900 p-4 sm:p-8 font-sans pb-24">
+      <div className="min-h-screen bg-white text-gray-900 p-4 sm:p-8 font-sans pb-24 relative">
         <div className="max-w-4xl mx-auto">
-          <button onClick={() => setLivroSelecionado(null)} className="mb-6 text-[#5a31f4] hover:underline font-semibold flex items-center gap-2">
-            ← Voltar para Vitrine
-          </button>
+          <div className="flex justify-between items-center mb-6">
+            <button onClick={() => setLivroSelecionado(null)} className="text-[#5a31f4] hover:underline font-semibold flex items-center gap-2">
+              ← Voltar para Vitrine
+            </button>
+
+            {/* BOTÃO DE SALVAR NA LISTA (Aparece para todos logados) */}
+            {token && !capituloLendo && (
+              <div className="relative">
+                <button onClick={() => setModalSalvarLivro(!modalSalvarLivro)} className="bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-[#e9e2ff] flex items-center gap-2 transition-colors">
+                  <span>+</span> Salvar na Lista
+                </button>
+
+                {/* MODAL SUSPENSO DAS LISTAS */}
+                {modalSalvarLivro && (
+                  <div className="absolute right-0 top-12 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Suas Listas</h4>
+                    <div className="max-h-48 overflow-y-auto">
+                      {minhasListas.length === 0 ? (
+                        <p className="text-xs text-gray-500 p-2 text-center">Você não tem listas.</p>
+                      ) : (
+                        minhasListas.map(lista => {
+                          const estaNaLista = verificaSeLivroEstaNaLista(lista);
+                          return (
+                            <button key={lista.id} onClick={() => alterarLivroNaLista(lista.id, !estaNaLista)} className="w-full text-left p-3 hover:bg-gray-50 rounded-xl flex items-center justify-between transition-colors">
+                              <span className="text-sm font-medium text-gray-800 line-clamp-1">{lista.nome}</span>
+                              {estaNaLista && <span className="text-[#5a31f4]">✔</span>}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                    <div className="border-t border-gray-100 mt-2 pt-2">
+                      <button onClick={() => { setModalSalvarLivro(false); setModalNovaLista(true); }} className="w-full text-left p-3 hover:bg-[#f3efff] rounded-xl text-sm font-bold text-[#5a31f4] flex items-center gap-2">
+                        <span>+</span> Criar nova lista
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="mb-8 flex flex-col md:flex-row gap-6 items-start">
             <img src={livroSelecionado.url_capa} className="w-32 h-48 object-cover rounded-2xl shadow-md" alt="Capa" />
@@ -586,6 +700,7 @@ function App() {
             </>
           )}
         </div>
+        {renderizarModalNovaLista()}
       </div>
     )
   }
@@ -612,6 +727,7 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto">
+        {/* ABA INÍCIO */}
         {abaAtual === 'inicio' && (
           <div className="px-4 sm:px-6 animate-fade-in">
             <div className="mb-6 relative">
@@ -689,6 +805,7 @@ function App() {
           </div>
         )}
 
+        {/* ABA EXPLORAR */}
         {abaAtual === 'explorar' && (
           <div className="px-4 sm:px-6 animate-fade-in pt-6">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Explorar</h2>
@@ -738,8 +855,58 @@ function App() {
           </div>
         )}
 
-        {abaAtual === 'biblioteca' && <h2 className="text-xl font-bold pt-4 px-6 animate-fade-in">Sua Estante (Em breve)</h2>}
+        {/* ABA BIBLIOTECA */}
+        {abaAtual === 'biblioteca' && (
+          <div className="px-4 sm:px-6 animate-fade-in pt-6">
+            <div className="flex justify-between items-end mb-8 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Sua Estante</h2>
+                <p className="text-sm text-gray-500">Histórias guardadas para ler depois.</p>
+              </div>
+              <button onClick={() => setModalNovaLista(true)} className="bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-[#e9e2ff] transition-colors">+ Nova Lista</button>
+            </div>
 
+            {minhasListas.length === 0 ? (
+              <div className="bg-white border border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-sm">
+                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-2xl mb-4 border border-dashed border-gray-300">📚</div>
+                <h4 className="font-bold text-gray-800 mb-1">Nenhuma lista criada</h4>
+                <p className="text-xs text-gray-500 max-w-xs mx-auto mb-6">Organize suas histórias favoritas em coleções personalizadas para ler mais tarde.</p>
+                <button onClick={() => setModalNovaLista(true)} className="bg-[#5a31f4] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-[#4924c9] transition-colors">Criar minha primeira lista</button>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {minhasListas.map(lista => (
+                  <div key={lista.id} className="bg-[#f8f7fb] rounded-3xl p-6 border border-gray-100">
+                    <div className="mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">{lista.nome}</h3>
+                      {lista.descricao && <p className="text-sm text-gray-500 mt-1">{lista.descricao}</p>}
+                      <p className="text-xs font-bold text-[#5a31f4] mt-2 bg-white inline-block px-3 py-1 rounded-full shadow-sm">{lista.livros.length} livros</p>
+                    </div>
+
+                    <div className="flex overflow-x-auto pb-2 gap-4 snap-x hide-scrollbar mt-4">
+                      {lista.livros.length > 0 ? (
+                        lista.livros.map(livro => (
+                          <div key={livro.id} className="min-w-[120px] max-w-[120px] cursor-pointer group flex-shrink-0" onClick={() => abrirLivro(livro)}>
+                            <div className="h-[170px] rounded-2xl overflow-hidden relative mb-2 shadow-sm border border-gray-200">
+                              <img src={livro.url_capa} className="absolute inset-0 w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-20 transition-opacity"></div>
+                            </div>
+                            <h4 className="font-bold text-gray-800 text-xs mb-0.5 line-clamp-1">{livro.titulo}</h4>
+                            <p className="text-[10px] text-gray-500 line-clamp-1">Por @{livro.autor?.username?.replace('@', '')}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-400 italic py-4">Esta lista está vazia. Salve alguns livros nela!</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABA PERFIL */}
         {abaAtual === 'perfil' && usuarioLogado && (
           <div className="pb-10 animate-fade-in">
             <div className="relative bg-[#5a3e36] h-48 sm:h-64 rounded-b-3xl w-full group overflow-hidden"
@@ -768,7 +935,7 @@ function App() {
 
               <div className="flex gap-8 sm:gap-12 mt-6 mb-8 text-center border-t border-b border-gray-100 py-4 w-full justify-center">
                 <div><span className="block font-bold text-lg text-gray-900">{livros.filter(l => l.autor_id === usuarioLogado.id).length}</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Obras</span></div>
-                <div><span className="block font-bold text-lg text-gray-900">0</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Listas</span></div>
+                <div><span className="block font-bold text-lg text-gray-900">{minhasListas.length}</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Listas</span></div>
                 <div><span className="block font-bold text-lg text-gray-900">0</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Seguidores</span></div>
               </div>
 
@@ -804,18 +971,33 @@ function App() {
                 <div className="col-span-1 md:col-span-2">
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-xl text-gray-900">Listas de Leitura</h3>
-                    <button className="text-sm bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl font-bold hover:bg-[#e9e2ff] transition-colors">+ Criar lista</button>
+                    <button onClick={() => setModalNovaLista(true)} className="text-sm bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl font-bold hover:bg-[#e9e2ff] transition-colors">+ Criar lista</button>
                   </div>
 
-                  <div className="bg-white border border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-sm">
-                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-2xl mb-4 border border-dashed border-gray-300">📚</div>
-                    <h4 className="font-bold text-gray-800 mb-1">Nenhuma lista criada</h4>
-                    <p className="text-xs text-gray-500 max-w-xs mx-auto">Organize suas histórias favoritas em coleções personalizadas para ler mais tarde.</p>
-                  </div>
+                  {minhasListas.length === 0 ? (
+                    <div className="bg-white border border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-sm">
+                      <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-2xl mb-4 border border-dashed border-gray-300">📚</div>
+                      <h4 className="font-bold text-gray-800 mb-1">Nenhuma lista criada</h4>
+                      <p className="text-xs text-gray-500 max-w-xs mx-auto">Organize suas histórias favoritas em coleções personalizadas para ler mais tarde.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {minhasListas.map(lista => (
+                        <div key={lista.id} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:border-[#5a31f4] transition-colors flex justify-between items-center cursor-pointer" onClick={() => setAbaAtual('biblioteca')}>
+                          <div>
+                            <h4 className="font-bold text-gray-900">{lista.nome}</h4>
+                            <p className="text-xs text-gray-500 mt-0.5">{lista.livros.length} livros salvos</p>
+                          </div>
+                          <span className="text-gray-400">→</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
               </div>
             </div>
+            {renderizarModalNovaLista()}
           </div>
         )}
       </main>

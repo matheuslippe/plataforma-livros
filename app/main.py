@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 from app import models, schemas, security
@@ -8,20 +8,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from collections import defaultdict
 from fastapi.staticfiles import StaticFiles
-from fastapi import UploadFile, File
 import uuid
 import random
 import os
 import shutil
 import time
 
+# Cria as tabelas no banco de dados
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Plataforma de Livros")
 
+# Configuração de arquivos estáticos (capas)
 os.makedirs(".capas", exist_ok=True)
 app.mount("/static", StaticFiles(directory=".capas"), name="static")
 
+# Middleware de CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,20 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-cadeado = OAuth2PasswordBearer(tokenUrl="login")
-
-
-def get_current_user(token: str = Depends(cadeado)):
-    try:
-        payload = jwt.decode(
-            token, security.SECRET_KEY, algorithms=[security.ALGORITHM]
-        )
-        usuario_id: str = payload.get("sub")
-        if usuario_id is None:
-            raise HTTPException(status_code=401, detail="Crachá inválido")
-        return int(usuario_id)
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Crachá inválido ou expirado")
+# --- Rotas Raiz ---
 
 
 @app.get("/")
@@ -99,39 +88,32 @@ def criar_usuario(usuario: schemas.UsuarioCriar, db: Session = Depends(get_db)):
 
 @app.get("/usuarios/me", response_model=schemas.UsuarioResposta)
 def obter_meu_perfil(
-    db: Session = Depends(get_db), usuario_id: int = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
-    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    return usuario
+    return usuario_atual
 
 
 @app.put("/usuarios/me", response_model=schemas.UsuarioResposta)
 def atualizar_meu_perfil(
     dados_atualizacao: schemas.UsuarioAtualizar,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
-    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-
-    # Atualiza apenas os campos que o React enviou
     if dados_atualizacao.nome_perfil is not None:
-        usuario.nome_perfil = dados_atualizacao.nome_perfil
+        usuario_atual.nome_perfil = dados_atualizacao.nome_perfil
     if dados_atualizacao.bio is not None:
-        usuario.bio = dados_atualizacao.bio
+        usuario_atual.bio = dados_atualizacao.bio
     if dados_atualizacao.redes_sociais is not None:
-        usuario.redes_sociais = dados_atualizacao.redes_sociais
+        usuario_atual.redes_sociais = dados_atualizacao.redes_sociais
     if dados_atualizacao.url_foto_perfil is not None:
-        usuario.url_foto_perfil = dados_atualizacao.url_foto_perfil
+        usuario_atual.url_foto_perfil = dados_atualizacao.url_foto_perfil
     if dados_atualizacao.url_capa_perfil is not None:
-        usuario.url_capa_perfil = dados_atualizacao.url_capa_perfil
+        usuario_atual.url_capa_perfil = dados_atualizacao.url_capa_perfil
 
     db.commit()
-    db.refresh(usuario)
-    return usuario
+    db.refresh(usuario_atual)
+    return usuario_atual
 
 
 # --- Rotas de Livros ---
@@ -141,12 +123,12 @@ def atualizar_meu_perfil(
 def criar_livro(
     livro: schemas.LivroCriar,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     novo_livro = models.Livro(
         titulo=livro.titulo,
         sinopse=livro.sinopse,
-        autor_id=usuario_id,
+        autor_id=usuario_atual.id,
         url_capa=livro.url_capa,
         idioma=livro.idioma,
         tipo_historia=livro.tipo_historia,
@@ -172,11 +154,11 @@ def atualizar_livro(
     livro_id: int,
     livro_atualizado: schemas.LivroCriar,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     livro = (
         db.query(models.Livro)
-        .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_id)
+        .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_atual.id)
         .first()
     )
     if not livro:
@@ -188,7 +170,6 @@ def atualizar_livro(
     livro.sinopse = livro_atualizado.sinopse
     if livro_atualizado.url_capa:
         livro.url_capa = livro_atualizado.url_capa
-
     livro.idioma = livro_atualizado.idioma
     livro.tipo_historia = livro_atualizado.tipo_historia
     livro.tags = livro_atualizado.tags
@@ -206,18 +187,17 @@ def atualizar_livro(
 def deletar_livro(
     livro_id: int,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     livro = (
         db.query(models.Livro)
-        .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_id)
+        .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_atual.id)
         .first()
     )
     if not livro:
         raise HTTPException(
             status_code=404, detail="Livro não encontrado ou não pertence a você"
         )
-
     db.delete(livro)
     db.commit()
     return {"mensagem": "Livro deletado com sucesso"}
@@ -230,7 +210,7 @@ def deletar_livro(
 def criar_capitulo(
     capitulo: schemas.CapituloCriar,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     novo_capitulo = models.Capitulo(
         livro_id=capitulo.livro_id,
@@ -245,11 +225,7 @@ def criar_capitulo(
 
 
 @app.get("/livros/{livro_id}/capitulos", response_model=list[schemas.CapituloResposta])
-def listar_capitulos_do_livro(
-    livro_id: int,
-    db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
-):
+def listar_capitulos_do_livro(livro_id: int, db: Session = Depends(get_db)):
     return (
         db.query(models.Capitulo)
         .filter(models.Capitulo.livro_id == livro_id)
@@ -263,17 +239,15 @@ def atualizar_capitulo(
     capitulo_id: int,
     capitulo_atualizado: schemas.CapituloCriar,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     capitulo = (
         db.query(models.Capitulo).filter(models.Capitulo.id == capitulo_id).first()
     )
     if not capitulo:
         raise HTTPException(status_code=404, detail="Capítulo não encontrado")
-
     capitulo.titulo_do_capitulo = capitulo_atualizado.titulo_do_capitulo
     capitulo.conteudo_texto = capitulo_atualizado.conteudo_texto
-
     db.commit()
     db.refresh(capitulo)
     return capitulo
@@ -283,20 +257,19 @@ def atualizar_capitulo(
 def deletar_capitulo(
     capitulo_id: int,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     capitulo = (
         db.query(models.Capitulo).filter(models.Capitulo.id == capitulo_id).first()
     )
     if not capitulo:
         raise HTTPException(status_code=404, detail="Capítulo não encontrado")
-
     db.delete(capitulo)
     db.commit()
     return {"mensagem": "Capítulo deletado com sucesso"}
 
 
-# --- NOVAS ROTAS: Motor Social por Capítulo ---
+# --- Motor Social ---
 
 
 @app.post("/capitulos/{capitulo_id}/visualizar")
@@ -306,7 +279,6 @@ def registrar_visualizacao_capitulo(capitulo_id: int, db: Session = Depends(get_
     )
     if not capitulo:
         raise HTTPException(status_code=404, detail="Capítulo não encontrado")
-
     capitulo.visualizacoes += 1
     db.commit()
     db.refresh(capitulo)
@@ -320,7 +292,7 @@ def registrar_visualizacao_capitulo(capitulo_id: int, db: Session = Depends(get_
 def curtir_capitulo(
     capitulo_id: int,
     db: Session = Depends(get_db),
-    usuario_id: int = Depends(get_current_user),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
 ):
     capitulo = (
         db.query(models.Capitulo).filter(models.Capitulo.id == capitulo_id).first()
@@ -332,22 +304,21 @@ def curtir_capitulo(
         db.query(models.Curtida)
         .filter(
             models.Curtida.capitulo_id == capitulo_id,
-            models.Curtida.usuario_id == usuario_id,
+            models.Curtida.usuario_id == usuario_atual.id,
         )
         .first()
     )
-
     if curtida_existente:
         db.delete(curtida_existente)
         capitulo.curtidas_totales = max(0, capitulo.curtidas_totales - 1)
-        mensagem = "Curtida removida"
-        curtido = False
+        mensagem, curtido = "Curtida removida", False
     else:
-        nova_curtida = models.Curtida(usuario_id=usuario_id, capitulo_id=capitulo_id)
+        nova_curtida = models.Curtida(
+            usuario_id=usuario_atual.id, capitulo_id=capitulo_id
+        )
         db.add(nova_curtida)
         capitulo.curtidas_totales += 1
-        mensagem = "Capítulo curtido com sucesso"
-        curtido = True
+        mensagem, curtido = "Capítulo curtido com sucesso", True
 
     db.commit()
     db.refresh(capitulo)
@@ -371,10 +342,7 @@ def gerar_codigo(pedido: schemas.PedidoRecuperacao, db: Session = Depends(get_db
     if usuario:
         codigo = str(random.randint(100000, 999999))
         codigos_recuperacao[pedido.email] = codigo
-        print("\n" + "=" * 50, flush=True)
-        print(f"📧 E-MAIL SIMULADO PARA: {pedido.email}", flush=True)
-        print(f"🔑 Seu código de recuperação é: {codigo}", flush=True)
-        print("=" * 50 + "\n", flush=True)
+        print(f"\n🔑 CÓDIGO RECUPERAÇÃO: {codigo}\n", flush=True)
     return {"mensagem": "Se o e-mail estiver cadastrado, o código foi gerado."}
 
 
@@ -383,13 +351,11 @@ def resetar_senha(dados: schemas.ResetSenha, db: Session = Depends(get_db)):
     codigo_salvo = codigos_recuperacao.get(dados.email)
     if not codigo_salvo or codigo_salvo != dados.codigo:
         raise HTTPException(status_code=400, detail="Código inválido ou expirado.")
-
     usuario = (
         db.query(models.Usuario).filter(models.Usuario.email == dados.email).first()
     )
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
     usuario.senha = security.obter_hash_senha(dados.nova_senha)
     db.commit()
     del codigos_recuperacao[dados.email]
@@ -411,58 +377,113 @@ def upload_imagem(request: Request, file: UploadFile = File(...)):
     caminho = f".capas/{nome_ficheiro}"
     with open(caminho, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    base_url = str(request.base_url)
-    return {"url_imagem": f"{base_url}capas/{nome_ficheiro}"}
+    return {"url_imagem": f"{str(request.base_url)}capas/{nome_ficheiro}"}
 
 
-# ==========================================
-# ROTAS DO EXPLORAR (ALGORITMO DE RECOMENDAÇÃO)
-# ==========================================
+# --- Explorar e Listas de Leitura ---
 
 
 @app.get("/explorar/tags-em-alta")
 def obter_tags_em_alta(db: Session = Depends(get_db)):
-    """
-    Analisa todos os livros e descobre quais tags estão bombando
-    com base nas visualizações e curtidas.
-    """
     livros = db.query(models.Livro).all()
     pontuacao_tags = defaultdict(int)
-
     for livro in livros:
         if livro.tags:
-            # 1 View = 1 ponto | 1 Curtida = 3 pontos
             pontos = (livro.visualizacoes or 0) + ((livro.curtidas_totales or 0) * 3)
-
-            # Como salvamos as tags como texto (ex: "romance, magia"), separamos aqui
-            tags_lista = [tag.strip().lower() for tag in livro.tags.split(",")]
-
-            for tag in tags_lista:
-                if tag:  # Ignora se estiver vazio
-                    pontuacao_tags[tag] += pontos
-
-    # Ordena as tags da maior pontuação para a menor
-    tags_ordenadas = sorted(pontuacao_tags.items(), key=lambda x: x[1], reverse=True)
-
-    # Pega apenas as 5 tags mais populares no momento
-    top_tags = [{"nome": k, "pontos": v} for k, v in tags_ordenadas[:5]]
-
+            for tag in [t.strip().lower() for t in livro.tags.split(",") if t]:
+                pontuacao_tags[tag] += pontos
+    top_tags = [
+        {"nome": k, "pontos": v}
+        for k, v in sorted(pontuacao_tags.items(), key=lambda x: x[1], reverse=True)[:5]
+    ]
     return top_tags
 
 
 @app.get("/explorar/livros-por-tag", response_model=list[schemas.LivroResposta])
 def obter_livros_por_tag(tag: str, db: Session = Depends(get_db)):
-    """
-    Busca os melhores livros que contêm uma tag específica,
-    ordenados pelos mais vistos primeiro.
-    """
-    # O comando .ilike(f"%{tag}%") procura a palavra dentro do texto da tag
-    livros = (
+    return (
         db.query(models.Livro)
         .filter(models.Livro.tags.ilike(f"%{tag}%"))
-        .order_by(models.Livro.visualizacoes.desc())  # Os mais famosos primeiro
-        .limit(10)  # Traz só os 10 melhores dessa tag
+        .order_by(models.Livro.visualizacoes.desc())
+        .limit(10)
         .all()
     )
-    return livros
+
+
+@app.post("/listas/", response_model=schemas.ListaLeituraResposta)
+def criar_lista(
+    lista: schemas.ListaLeituraCriar,
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    nova_lista = models.ListaLeitura(
+        nome=lista.nome, descricao=lista.descricao, usuario_id=usuario_atual.id
+    )
+    db.add(nova_lista)
+    db.commit()
+    db.refresh(nova_lista)
+    return nova_lista
+
+
+@app.get("/usuarios/me/listas", response_model=list[schemas.ListaLeituraResposta])
+def minhas_listas(
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    return (
+        db.query(models.ListaLeitura)
+        .filter(models.ListaLeitura.usuario_id == usuario_atual.id)
+        .all()
+    )
+
+
+@app.post("/listas/{lista_id}/adicionar/{livro_id}")
+def adicionar_livro_na_lista(
+    lista_id: int,
+    livro_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    lista = (
+        db.query(models.ListaLeitura)
+        .filter(
+            models.ListaLeitura.id == lista_id,
+            models.ListaLeitura.usuario_id == usuario_atual.id,
+        )
+        .first()
+    )
+    if not lista:
+        raise HTTPException(status_code=404, detail="Lista não encontrada")
+    livro = db.query(models.Livro).filter(models.Livro.id == livro_id).first()
+    if not livro:
+        raise HTTPException(status_code=404, detail="Livro não encontrado")
+    if livro in lista.livros:
+        raise HTTPException(status_code=400, detail="Este livro já está na lista")
+    lista.livros.append(livro)
+    db.commit()
+    return {"mensagem": "Livro adicionado com sucesso!"}
+
+
+@app.delete("/listas/{lista_id}/remover/{livro_id}")
+def remover_livro_da_lista(
+    lista_id: int,
+    livro_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    lista = (
+        db.query(models.ListaLeitura)
+        .filter(
+            models.ListaLeitura.id == lista_id,
+            models.ListaLeitura.usuario_id == usuario_atual.id,
+        )
+        .first()
+    )
+    if not lista:
+        raise HTTPException(status_code=404, detail="Lista não encontrada")
+    livro = db.query(models.Livro).filter(models.Livro.id == livro_id).first()
+    if livro in lista.livros:
+        lista.livros.remove(livro)
+        db.commit()
+        return {"mensagem": "Livro removido da lista."}
+    raise HTTPException(status_code=400, detail="O livro não está nesta lista.")
