@@ -20,7 +20,7 @@ jobs:
       - name: Run Tests
         env:
           PYTHONPATH: .
-          POSTGRES_PASSWORD: "senha_de_teste_ci" # <--- A mágica acontece aqui!
+          POSTGRES_PASSWORD: "senha_de_teste_ci" 
         run: pytest app/tests/ -v
 
   frontend-test:
@@ -37,4 +37,4 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Run Build/Lint
-        run: npm run build # Ou npm test se tiver configurado
+        run: npm run build 
