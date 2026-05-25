@@ -9,6 +9,23 @@ on:
 jobs:
   backend-test:
     runs-on: ubuntu-latest
+
+    # Cria o banco de dados temporário para o teste
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: "admin"
+          POSTGRES_PASSWORD: "senha_de_teste_ci"
+          POSTGRES_DB: "livros_db"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -17,10 +34,14 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
+        
       - name: Run Tests
         env:
           PYTHONPATH: .
-          POSTGRES_PASSWORD: "senha_de_teste_ci" 
+          POSTGRES_PASSWORD: "senha_de_teste_ci"
+          POSTGRES_USER: "admin"
+          POSTGRES_DB: "livros_db"
+          POSTGRES_HOST: "localhost" # <--- É ESTA LINHA QUE IMPEDE O ERRO "db"!
         run: pytest app/tests/ -v
 
   frontend-test:
@@ -37,4 +58,4 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Run Build/Lint
-        run: npm run build 
+        run: npm run build
