@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Table
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -78,3 +78,30 @@ class Capitulo(Base):
     curtidas_totales = Column(Integer, default=0)
 
     livro = relationship("Livro", back_populates="capitulos")
+
+
+# ==========================================
+# MODELOS DE BIBLIOTECA E LISTAS
+# ==========================================
+
+# Esta é a tabela "ponte" robusta que liga um livro a uma lista
+lista_livro_associacao = Table(
+    "lista_livro",
+    Base.metadata,
+    Column("lista_id", Integer, ForeignKey("listas_leitura.id", ondelete="CASCADE")),
+    Column("livro_id", Integer, ForeignKey("livros.id", ondelete="CASCADE")),
+)
+
+
+class ListaLeitura(Base):
+    __tablename__ = "listas_leitura"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, nullable=False)
+    descricao = Column(String, nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"))
+
+    # Relacionamentos Mágicos
+    dono = relationship("Usuario")
+    # Traz todos os livros que estão dentro desta lista usando a tabela ponte
+    livros = relationship("Livro", secondary=lista_livro_associacao)

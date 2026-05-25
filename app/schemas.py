@@ -114,3 +114,25 @@ class ResetSenha(BaseModel):
     email: str
     codigo: str
     nova_senha: str
+
+
+# ESQUEMAS DE LISTAS DE LEITURA
+
+
+class ListaLeituraCriar(BaseModel):
+    nome: str
+    descricao: str | None = None
+
+
+class ListaLeituraResposta(BaseModel):
+    id: int
+    nome: str
+    descricao: str | None
+    usuario_id: int
+
+    # O Pydantic é inteligente: ele vai puxar a lista de livros completa
+    # reaproveitando a classe LivroResposta que você já criou antes!
+    livros: list[LivroResposta] = []
+
+    class Config:
+        from_attributes = True
