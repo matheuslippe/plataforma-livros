@@ -150,11 +150,11 @@ function App() {
                   <span
                     onClick={(e) => {
                       e.stopPropagation();
-                      irParaPerfilAutor(livro.autor_id);
+                      irParaPerfilAutor(autor.id); // CORRIGIDO: Usando autor.id em vez de livro.autor_id
                     }}
                     className="text-sm text-gray-500 hover:text-[#5a31f4] cursor-pointer underline"
                   >
-                    @{livro.autor?.username?.replace('@', '')}
+                    @{autor.username?.replace('@', '')} {/* CORRIGIDO */}
                   </span>
                 </div>
               </div>
@@ -203,11 +203,9 @@ function App() {
       });
       if (res.ok) {
         const dados = await res.json();
-
         setUsuarioExibido(dados);
         setLivroSelecionado(null);
         setAbaAtual('perfil_autor');
-
       }
     } catch (e) {
       console.error("Erro ao carregar perfil do autor:", e);
@@ -422,14 +420,18 @@ function App() {
 
         const catalogo = {};
         for (let tagObj of tagsData) {
-          const resLivros = await fetch(`${API_URL}/explorar/livros-por-tag?tag=${tagObj.nome}`);
+          // CORRIGIDO: EncodeURIComponent e trim para evitar quebras com espaços/acentos
+          const nomeDaTag = tagObj.nome.trim();
+          const resLivros = await fetch(`${API_URL}/explorar/livros-por-tag?tag=${encodeURIComponent(nomeDaTag)}`);
           if (resLivros.ok) {
             catalogo[tagObj.nome] = await resLivros.json();
           }
         }
         setLivrosPorTag(catalogo);
       }
-    } catch (e) { }
+    } catch (e) {
+      console.error("Erro ao carregar o Explorar:", e);
+    }
   }
 
   // ==========================================
@@ -685,7 +687,6 @@ function App() {
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Usamos livroSelecionado.autor_id aqui!
                     irParaPerfilAutor(livroSelecionado.autor_id);
                   }}
                   className="text-[#5a31f4] hover:underline cursor-pointer font-bold"

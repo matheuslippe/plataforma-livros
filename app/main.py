@@ -412,13 +412,21 @@ def obter_tags_em_alta(db: Session = Depends(get_db)):
 
 @app.get("/explorar/livros-por-tag", response_model=list[schemas.LivroResposta])
 def obter_livros_por_tag(tag: str, db: Session = Depends(get_db)):
-    return (
-        db.query(models.Livro)
-        .filter(models.Livro.tags.ilike(f"%{tag}%"))
-        .order_by(models.Livro.visualizacoes.desc())
-        .limit(10)
-        .all()
+    tag_limpa = tag.strip().lower()
+
+    # 1. Busca os livros no banco (sem o order_by e sem o limit)
+    livros_encontrados = (
+        db.query(models.Livro).filter(models.Livro.tags.ilike(f"%{tag_limpa}%")).all()
     )
+
+    # 2. Ordena os livros no Python usando a propriedade 'visualizacoes' (do maior para o menor)
+    # Usamos (l.visualizacoes or 0) para evitar erros caso o livro não tenha visualizações
+    livros_ordenados = sorted(
+        livros_encontrados, key=lambda l: l.visualizacoes or 0, reverse=True
+    )
+
+    # 3. Retorna apenas os 10 primeiros
+    return livros_ordenados[:10]
 
 
 @app.post("/listas/", response_model=schemas.ListaLeituraResposta)
