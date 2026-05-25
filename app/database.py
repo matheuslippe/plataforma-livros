@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 usuario = os.getenv("POSTGRES_USER", "admin").strip()
-senha_crua = os.getenv("POSTGRES_PASSWORD").strip()
+senha_crua = os.getenv("POSTGRES_PASSWORD", "").strip()
 banco = os.getenv("POSTGRES_DB", "livros_db").strip()
 
 # Isso transforma caracteres especiais como '@' em códigos seguros (ex: '%40')

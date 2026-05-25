@@ -20,6 +20,7 @@ jobs:
       - name: Run Tests
         env:
           PYTHONPATH: .
+          POSTGRES_PASSWORD: "senha_de_teste_ci" # <--- A mágica acontece aqui!
         run: pytest app/tests/ -v
 
   frontend-test:
