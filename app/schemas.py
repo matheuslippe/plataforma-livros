@@ -11,19 +11,33 @@ class UsuarioCriar(BaseModel):
     senha: str
 
 
+class UsuarioAtualizar(BaseModel):
+    nome_perfil: str | None = None
+    bio: str | None = None
+    redes_sociais: str | None = None
+    url_foto_perfil: str | None = None
+    url_capa_perfil: str | None = None
+
+
 class UsuarioResposta(BaseModel):
     id: int
     username: str
     nome_perfil: str
     email: str
+    url_foto_perfil: str | None = None
+    url_capa_perfil: str | None = None
+    bio: str | None = None
+    redes_sociais: str | None = None
+    data_cadastro: str | None = None
 
     class Config:
         from_attributes = True
 
 
 class AutorResposta(BaseModel):
+    id: int
     username: str
-    nome_perfil: str
+    url_foto_perfil: str | None = None
 
     class Config:
         from_attributes = True

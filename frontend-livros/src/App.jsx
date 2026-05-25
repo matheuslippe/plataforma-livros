@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 
+const API_URL = 'http://172.16.21.21:8000'
+
 function App() {
   // --- Estados do Usuário ---
   const [token, setToken] = useState(localStorage.getItem('meu_token_jwt') || '')
   const [usuarioId, setUsuarioId] = useState(Number(localStorage.getItem('meu_usuario_id')) || null)
+  const [usuarioLogado, setUsuarioLogado] = useState(null)
   const [mostrarLogin, setMostrarLogin] = useState(false)
   const [modoLogin, setModoLogin] = useState(true)
   const [mensagem, setMensagem] = useState('')
@@ -12,6 +15,10 @@ function App() {
   const [username, setUsername] = useState('')
   const [nomePerfil, setNomePerfil] = useState('')
 
+  // --- Estados do Perfil ---
+  const [editandoPerfil, setEditandoPerfil] = useState(false)
+  const [perfilForm, setPerfilForm] = useState({ nome_perfil: '', bio: '', redes_sociais: '' })
+
   // --- Estados do Livro ---
   const [livros, setLivros] = useState([])
   const [tituloNovo, setTituloNovo] = useState('')
@@ -19,7 +26,8 @@ function App() {
   const [arquivoCapa, setArquivoCapa] = useState(null)
   const [idioma, setIdioma] = useState('Português')
   const [tipoHistoria, setTipoHistoria] = useState('Ficção')
-  const [tags, setTags] = useState('')
+  const [tags, setTags] = useState([])
+  const [tagInput, setTagInput] = useState('')
   const [direitosAutorais, setDireitosAutorais] = useState('Todos os Direitos Reservados')
   const [classificacaoAdulto, setClassificacaoAdulto] = useState(false)
   const [personagensPrincipais, setPersonagensPrincipais] = useState('')
@@ -38,10 +46,24 @@ function App() {
   const [capituloEditandoId, setCapituloEditandoId] = useState(null)
   const [capituloLendo, setCapituloLendo] = useState(null)
 
-  // Carrega os livros na inicialização
+  // --- Estados do Explorar ---
+  const [tagsEmAlta, setTagsEmAlta] = useState([])
+  const [livrosPorTag, setLivrosPorTag] = useState({})
+
+  // ==========================================
+  // EFEITOS DE INICIALIZAÇÃO E CONTROLE
+  // ==========================================
   useEffect(() => {
     if (!livroSelecionado) buscarLivros()
   }, [livroSelecionado])
+
+  useEffect(() => {
+    carregarMeuPerfil()
+  }, [token])
+
+  useEffect(() => {
+    if (abaAtual === 'explorar') carregarExplorar();
+  }, [abaAtual])
 
   const exigirLogin = (acao_permitida) => {
     if (token) acao_permitida()
@@ -49,12 +71,12 @@ function App() {
   }
 
   // ==========================================
-  // LÓGICA DE API - USUÁRIOS E LOGIN
+  // LÓGICA DE API - USUÁRIOS E PERFIL
   // ==========================================
   const fazerCadastro = async (e) => {
     e.preventDefault();
     try {
-      const resposta = await fetch('http://localhost:8000/usuarios/', {
+      const resposta = await fetch(`${API_URL}/usuarios/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, nome_perfil: nomePerfil, email, senha })
@@ -76,7 +98,7 @@ function App() {
     formData.append('username', email);
     formData.append('password', senha);
     try {
-      const resposta = await fetch('http://localhost:8000/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
+      const resposta = await fetch(`${API_URL}/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
       if (resposta.ok) {
         const dados = await resposta.json();
         localStorage.setItem('meu_token_jwt', dados.access_token);
@@ -89,72 +111,200 @@ function App() {
     } catch (erro) { setMensagem('Erro de conexão.'); }
   }
 
-  const sair = () => { localStorage.removeItem('meu_token_jwt'); localStorage.removeItem('meu_usuario_id'); setToken(''); setUsuarioId(null); setLivros([]); setLivroSelecionado(null); setMensagem(''); setTelaLivroAberta(false); setAbaAtual('inicio'); buscarLivros(); }
+  const sair = () => {
+    localStorage.removeItem('meu_token_jwt');
+    localStorage.removeItem('meu_usuario_id');
+    setToken('');
+    setUsuarioId(null);
+    setUsuarioLogado(null);
+    setLivros([]);
+    setLivroSelecionado(null);
+    setMensagem('');
+    setTelaLivroAberta(false);
+    setAbaAtual('inicio');
+    buscarLivros();
+  }
+
+  const carregarMeuPerfil = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/usuarios/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const dados = await res.json();
+        setUsuarioLogado(dados);
+        setPerfilForm({ nome_perfil: dados.nome_perfil || '', bio: dados.bio || '', redes_sociais: dados.redes_sociais || '' });
+      } else if (res.status === 401) {
+        sair();
+        alert("Sua sessão expirou ou a conta foi removida. Por favor, faça login novamente.");
+      }
+    } catch (e) { }
+  }
+
+  const salvarEdicaoPerfil = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_URL}/usuarios/me`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(perfilForm)
+      });
+      if (res.ok) { carregarMeuPerfil(); setEditandoPerfil(false); }
+    } catch (e) { }
+  }
+
+  const fazerUploadImagem = async (arquivo) => {
+    const formData = new FormData(); formData.append('file', arquivo)
+    try {
+      const res = await fetch(`${API_URL}/upload-imagem`, { method: 'POST', body: formData })
+      if (res.ok) { const dados = await res.json(); return dados.url_imagem; }
+      return null;
+    } catch (e) { return null; }
+  }
+
+  const mudarImagemPerfil = async (tipo, arquivo) => {
+    if (!arquivo) return;
+    const url = await fazerUploadImagem(arquivo);
+    if (url) {
+      await fetch(`${API_URL}/usuarios/me`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(tipo === 'foto' ? { url_foto_perfil: url } : { url_capa_perfil: url })
+      });
+      carregarMeuPerfil();
+    }
+  }
 
   // ==========================================
-  // LÓGICA DE API - LIVROS E CAPÍTULOS
+  // LÓGICA DE API - LIVROS
   // ==========================================
-  const buscarLivros = async () => { try { const res = await fetch('http://localhost:8000/livros/'); if (res.ok) setLivros(await res.json()); } catch (e) { } }
+  const buscarLivros = async () => { try { const res = await fetch(`${API_URL}/livros/`); if (res.ok) setLivros(await res.json()); } catch (e) { } }
 
   const salvarLivro = async (e) => {
     e.preventDefault()
     let capaFinal = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?q=80&w=600&auto=format&fit=crop"
 
     if (arquivoCapa) {
-      const formData = new FormData(); formData.append('file', arquivoCapa)
-      try {
-        const resUpload = await fetch('http://localhost:8000/upload-capa', { method: 'POST', body: formData })
-        if (resUpload.ok) { const dadosUpload = await resUpload.json(); capaFinal = dadosUpload.url_capa; }
-        else { alert("Erro ao subir imagem."); return; }
-      } catch (erro) { alert("Erro de conexão."); return; }
+      const urlUpload = await fazerUploadImagem(arquivoCapa);
+      if (urlUpload) capaFinal = urlUpload;
+      else { alert("Erro ao subir imagem."); return; }
     } else if (livroEditandoId) {
       const livroAntigo = livros.find(l => l.id === livroEditandoId)
       if (livroAntigo) capaFinal = livroAntigo.url_capa
     }
 
-    const url = livroEditandoId ? `http://localhost:8000/livros/${livroEditandoId}` : 'http://localhost:8000/livros/'
+    const url = livroEditandoId ? `${API_URL}/livros/${livroEditandoId}` : `${API_URL}/livros/`
     const metodo = livroEditandoId ? 'PUT' : 'POST'
 
     try {
       const res = await fetch(url, {
         method: metodo,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ titulo: tituloNovo, sinopse: sinopseNova, url_capa: capaFinal, idioma, tipo_historia: tipoHistoria, tags, direitos_autorais: direitosAutorais, classificacao_adulto: classificacaoAdulto, personagens_principais: personagensPrincipais, publico_alvo: publicoAlvo })
+        body: JSON.stringify({
+          titulo: tituloNovo,
+          sinopse: sinopseNova,
+          url_capa: capaFinal,
+          idioma,
+          tipo_historia: tipoHistoria,
+          tags: tags.join(', '),
+          direitos_autorais: direitosAutorais,
+          classificacao_adulto: classificacaoAdulto,
+          personagens_principais: personagensPrincipais,
+          publico_alvo: publicoAlvo
+        })
       })
       if (res.ok) {
-        setTituloNovo(''); setSinopseNova(''); setArquivoCapa(null); setIdioma('Português'); setTipoHistoria('Ficção'); setTags(''); setDireitosAutorais('Todos os Direitos Reservados'); setClassificacaoAdulto(false); setPersonagensPrincipais(''); setPublicoAlvo('Jovem Adulto (13-18 anos)');
+        const livroSalvo = await res.json();
+        setTituloNovo(''); setSinopseNova(''); setArquivoCapa(null); setIdioma('Português'); setTipoHistoria('Ficção'); setTags([]); setDireitosAutorais('Todos os Direitos Reservados'); setClassificacaoAdulto(false); setPersonagensPrincipais(''); setPublicoAlvo('Jovem Adulto (13-18 anos)');
+
+        if (livroEditandoId) {
+          setLivroSelecionado(livroSalvo);
+        }
+
         setLivroEditandoId(null); setTelaLivroAberta(false); buscarLivros();
       }
     } catch (e) { }
   }
 
-  const deletarLivro = async (id) => { if (!window.confirm("Apagar?")) return; try { const res = await fetch(`http://localhost:8000/livros/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }); if (res.ok) buscarLivros(); } catch (e) { } }
+  const deletarLivro = async (id) => { if (!window.confirm("Apagar?")) return; try { const res = await fetch(`${API_URL}/livros/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }); if (res.ok) buscarLivros(); } catch (e) { } }
 
   const iniciarEdicaoLivro = (livro) => {
-    setTituloNovo(livro.titulo); setSinopseNova(livro.sinopse); setIdioma(livro.idioma || 'Português'); setTipoHistoria(livro.tipo_historia || 'Ficção'); setTags(livro.tags || ''); setDireitosAutorais(livro.direitos_autorais || 'Todos os Direitos Reservados'); setClassificacaoAdulto(livro.classificacao_adulto || false); setPersonagensPrincipais(livro.personagens_principais || ''); setPublicoAlvo(livro.publico_alvo || 'Jovem Adulto (13-18 anos)'); setLivroEditandoId(livro.id); setTelaLivroAberta(true);
+    setTituloNovo(livro.titulo);
+    setSinopseNova(livro.sinopse);
+    setIdioma(livro.idioma || 'Português');
+    setTipoHistoria(livro.tipo_historia || 'Ficção');
+    setTags(livro.tags ? livro.tags.split(',').map(t => t.trim()) : []);
+    setDireitosAutorais(livro.direitos_autorais || 'Todos os Direitos Reservados');
+    setClassificacaoAdulto(livro.classificacao_adulto || false);
+    setPersonagensPrincipais(livro.personagens_principais || '');
+    setPublicoAlvo(livro.publico_alvo || 'Jovem Adulto (13-18 anos)');
+    setLivroEditandoId(livro.id);
+    setTelaLivroAberta(true);
   }
 
   const abrirLivro = async (livro) => {
+    if (!token) {
+      setMostrarLogin(true);
+      return;
+    }
     setLivroSelecionado(livro);
     setCapituloLendo(null);
-    try { const res = await fetch(`http://localhost:8000/livros/${livro.id}/capitulos`); if (res.ok) setCapitulos(await res.json()); } catch (e) { }
+    try {
+      const res = await fetch(`${API_URL}/livros/${livro.id}/capitulos`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setCapitulos(await res.json());
+    } catch (e) { }
   }
 
-  const salvarCapitulo = async (e) => { e.preventDefault(); const url = capituloEditandoId ? `http://localhost:8000/capitulos/${capituloEditandoId}` : 'http://localhost:8000/capitulos/'; const metodo = capituloEditandoId ? 'PUT' : 'POST'; try { const res = await fetch(url, { method: metodo, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ livro_id: livroSelecionado.id, titulo_do_capitulo: tituloCapitulo, conteudo_texto: conteudoCapitulo, ordem_leitura: capituloEditandoId ? undefined : capitulos.length + 1 }) }); if (res.ok) { setTituloCapitulo(''); setConteudoCapitulo(''); setCapituloEditandoId(null); abrirLivro(livroSelecionado); } } catch (e) { } }
+  // ==========================================
+  // LÓGICA DE API - CAPÍTULOS
+  // ==========================================
+  const salvarCapitulo = async (e) => {
+    e.preventDefault();
+    const url = capituloEditandoId ? `${API_URL}/capitulos/${capituloEditandoId}` : `${API_URL}/capitulos/`;
+    const metodo = capituloEditandoId ? 'PUT' : 'POST';
+    const capAtual = capitulos.find(c => c.id === capituloEditandoId);
+    const ordem = capAtual ? capAtual.ordem_leitura : capitulos.length + 1;
 
-  const deletarCapitulo = async (id) => { if (!window.confirm("Apagar?")) return; try { const res = await fetch(`http://localhost:8000/capitulos/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }); if (res.ok) abrirLivro(livroSelecionado); } catch (e) { } }
+    try {
+      const res = await fetch(url, {
+        method: metodo,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          livro_id: livroSelecionado.id,
+          titulo_do_capitulo: tituloCapitulo,
+          conteudo_texto: conteudoCapitulo,
+          ordem_leitura: ordem
+        })
+      });
+
+      if (res.ok) {
+        setTituloCapitulo('');
+        setConteudoCapitulo('');
+        setCapituloEditandoId(null);
+        abrirLivro(livroSelecionado);
+      } else {
+        alert("Erro ao salvar o capítulo.");
+      }
+    } catch (e) {
+      alert("Erro de conexão ao tentar salvar o capítulo.");
+    }
+  }
+
+  const deletarCapitulo = async (id) => { if (!window.confirm("Apagar?")) return; try { const res = await fetch(`${API_URL}/capitulos/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }); if (res.ok) abrirLivro(livroSelecionado); } catch (e) { } }
 
   const iniciarEdicaoCapitulo = (cap) => { setTituloCapitulo(cap.titulo_do_capitulo); setConteudoCapitulo(cap.conteudo_texto); setCapituloEditandoId(cap.id); }
 
-  // ==========================================
-  // LÓGICA DO MOTOR SOCIAL (CAPÍTULOS)
-  // ==========================================
   const iniciarLeituraCapitulo = async (cap) => {
     setCapituloLendo(cap);
     try {
-      await fetch(`http://localhost:8000/capitulos/${cap.id}/visualizar`, { method: 'POST' });
+      await fetch(`${API_URL}/capitulos/${cap.id}/visualizar`, { method: 'POST' });
       buscarLivros();
-      const res = await fetch(`http://localhost:8000/livros/${livroSelecionado.id}/capitulos`);
+
+      const res = await fetch(`${API_URL}/livros/${livroSelecionado.id}/capitulos`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
       if (res.ok) {
         const capsAts = await res.json();
         setCapitulos(capsAts);
@@ -167,17 +317,42 @@ function App() {
   const curtirCapitulo = async (capId) => {
     if (!token) { setMostrarLogin(true); return; }
     try {
-      const res = await fetch(`http://localhost:8000/capitulos/${capId}/curtir`, {
+      const res = await fetch(`${API_URL}/capitulos/${capId}/curtir`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
         const dados = await res.json();
-        if (capituloLendo && capituloLendo.id === capId) {
-          setCapituloLendo({ ...capituloLendo, curtidas_totales: dados.curtidas_totales });
-        }
-        setCapitulos(capitulos.map(c => c.id === capId ? { ...c, curtidas_totales: dados.curtidas_totales } : c));
+        setCapituloLendo(prev => prev ? { ...prev, curtidas_totales: dados.curtidas_totales } : prev);
+        setCapitulos(prev => prev.map(c => c.id === capId ? { ...c, curtidas_totales: dados.curtidas_totales } : c));
         buscarLivros();
+      } else {
+        const erro = await res.json();
+        alert(`Erro na API: ${erro.detail || "Falha no servidor"}`);
+      }
+    } catch (e) {
+      alert("Erro de conexão ao tentar curtir o capítulo.");
+    }
+  }
+
+  // ==========================================
+  // LÓGICA DE API - EXPLORAR
+  // ==========================================
+  const carregarExplorar = async () => {
+    try {
+      const resTags = await fetch(`${API_URL}/explorar/tags-em-alta`);
+      if (resTags.ok) {
+        const tagsData = await resTags.json();
+        setTagsEmAlta(tagsData);
+
+        const catalogo = {};
+        for (let tagObj of tagsData) {
+          const resLivros = await fetch(`${API_URL}/explorar/livros-por-tag?tag=${tagObj.nome}`);
+          if (resLivros.ok) {
+            catalogo[tagObj.nome] = await resLivros.json();
+          }
+        }
+        setLivrosPorTag(catalogo);
       }
     } catch (e) { }
   }
@@ -185,7 +360,7 @@ function App() {
   const livrosRecentes = [...livros].reverse();
 
   // ==========================================
-  // 1. TELA DE LOGIN 
+  // RENDERIZAÇÃO: TELA DE LOGIN 
   // ==========================================
   if (mostrarLogin) {
     return (
@@ -214,11 +389,95 @@ function App() {
   }
 
   // ==========================================
-  // 2. TELA DE LEITURA / CAPÍTULOS
+  // RENDERIZAÇÃO: CRIAÇÃO / EDIÇÃO DE OBRA
+  // ==========================================
+  if (telaLivroAberta) {
+    return (
+      <div className="min-h-screen bg-white p-4 sm:p-6 font-sans flex flex-col pt-8 pb-24">
+        <h2 className="text-2xl font-bold mb-6 text-center text-[#5a31f4]">{livroEditandoId ? "Editar Detalhes da Obra" : "Nova Obra"}</h2>
+
+        <form onSubmit={salvarLivro} className="flex flex-col gap-4 max-w-2xl mx-auto w-full">
+          <input type="text" placeholder="Título da Obra" value={tituloNovo} onChange={(e) => setTituloNovo(e.target.value)} required className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-[#5a31f4]" />
+          <textarea placeholder="Sinopse (Resuma sua história para atrair leitores...)" value={sinopseNova} onChange={(e) => setSinopseNova(e.target.value)} required className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none h-32 focus:ring-2 focus:ring-[#5a31f4]" />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <select value={idioma} onChange={(e) => setIdioma(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer focus:ring-2 focus:ring-[#5a31f4]">
+              <option value="Português">Português</option><option value="Inglês">Inglês</option><option value="Espanhol">Espanhol</option>
+            </select>
+            <select value={tipoHistoria} onChange={(e) => setTipoHistoria(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer focus:ring-2 focus:ring-[#5a31f4]">
+              <option value="Ficção">Ficção</option><option value="Fanfic">Fanfic</option><option value="Não ficção">Não ficção</option><option value="Poesia">Poesia</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-2 p-3 rounded-2xl bg-gray-50 border border-gray-100 focus-within:ring-2 focus-within:ring-[#5a31f4]">
+            <div className="flex flex-wrap gap-2 items-center">
+              {tags.map((tag, index) => (
+                <span key={index} className="bg-[#f3efff] text-[#5a31f4] px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2 shadow-sm">
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => setTags(tags.filter((_, i) => i !== index))}
+                    className="hover:text-red-500 font-bold text-sm"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+              <input
+                type="text"
+                placeholder={tags.length === 0 ? "Digite uma tag e aperte Enter..." : "Adicionar mais..."}
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const novaTag = tagInput.trim();
+                    if (novaTag && !tags.includes(novaTag)) {
+                      setTags([...tags, novaTag]);
+                      setTagInput('');
+                    }
+                  }
+                }}
+                className="bg-transparent outline-none flex-1 min-w-[150px] text-sm p-1"
+              />
+            </div>
+          </div>
+
+          <input type="text" placeholder="Personagens Principais (Ex: Harry, Hermione)" value={personagensPrincipais} onChange={(e) => setPersonagensPrincipais(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-[#5a31f4]" />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <select value={publicoAlvo} onChange={(e) => setPublicoAlvo(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer text-sm focus:ring-2 focus:ring-[#5a31f4]">
+              <option value="Infantil (0-12 anos)">Infantil (0-12 anos)</option><option value="Jovem Adulto (13-18 anos)">Jovem Adulto (13-18 anos)</option><option value="Novo Adulto (18-25 anos)">Novo Adulto (18-25 anos)</option><option value="Adulto (25+ anos)">Adulto (25+ anos)</option>
+            </select>
+            <select value={direitosAutorais} onChange={(e) => setDireitosAutorais(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer text-sm focus:ring-2 focus:ring-[#5a31f4]">
+              <option value="Todos os Direitos Reservados">Todos os Direitos Reservados</option><option value="Domínio Público">Domínio Público</option><option value="Creative Commons (CC) Atribuição">Creative Commons (CC) Atribuição</option><option value="(CC) Atribuição-NãoComercial">(CC) Atribuição-NãoComercial</option><option value="(CC) Atribuição-NãoComercial-SemDerivações">(CC) Atribuição-NãoComercial-SemDerivações</option><option value="(CC) Atribuição-NãoComercial-CompartilhaIgual">(CC) Atribuição-NãoComercial-CompartilhaIgual</option><option value="(CC) Atribuição-CompartilhaIgual">(CC) Atribuição-CompartilhaIgual</option><option value="(CC) Atribuição-SemDerivações">(CC) Atribuição-SemDerivações</option>
+            </select>
+          </div>
+
+          <label className="flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-100 cursor-pointer hover:bg-red-100 transition-colors">
+            <input type="checkbox" checked={classificacaoAdulto} onChange={(e) => setClassificacaoAdulto(e.target.checked)} className="w-5 h-5 accent-red-500 cursor-pointer" />
+            <span className="text-sm font-bold text-red-600">Conteúdo +18 (História contém cenas explícitas ou gatilhos fortes)</span>
+          </label>
+
+          <div className="border-2 border-dashed border-gray-300 hover:border-[#5a31f4] transition-colors rounded-2xl p-6 bg-gray-50 text-center relative mt-2">
+            <input type="file" accept="image/*" onChange={(e) => setArquivoCapa(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            <span className="text-sm text-gray-600 font-medium">{arquivoCapa ? arquivoCapa.name : "🖼️ Toque aqui para enviar a Capa do Livro"}</span>
+          </div>
+
+          <div className="flex gap-4 mt-4">
+            <button type="button" onClick={() => { setTelaLivroAberta(false); setLivroEditandoId(null); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-full hover:bg-gray-200 transition-colors">Cancelar</button>
+            <button type="submit" className="flex-1 py-4 bg-[#5a31f4] text-white font-bold rounded-full shadow-md hover:bg-[#4924c9] transition-colors">Salvar Obra</button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // RENDERIZAÇÃO: LEITURA E CAPÍTULOS
   // ==========================================
   if (livroSelecionado) {
     const souDonoDoLivro = token && livroSelecionado.autor_id === usuarioId
-    // Pega os totais atualizados em tempo real se existirem no state de livros principal
     const livroAtualizado = livros.find(l => l.id === livroSelecionado.id) || livroSelecionado;
 
     return (
@@ -332,64 +591,12 @@ function App() {
   }
 
   // ==========================================
-  // 3. TELA DE CRIAÇÃO / EDIÇÃO DE OBRA
-  // ==========================================
-  if (telaLivroAberta) {
-    return (
-      <div className="min-h-screen bg-white p-4 sm:p-6 font-sans flex flex-col pt-8 pb-24">
-        <h2 className="text-2xl font-bold mb-6 text-center text-[#5a31f4]">{livroEditandoId ? "Editar Detalhes da Obra" : "Nova Obra"}</h2>
-
-        <form onSubmit={salvarLivro} className="flex flex-col gap-4 max-w-2xl mx-auto w-full">
-          <input type="text" placeholder="Título da Obra" value={tituloNovo} onChange={(e) => setTituloNovo(e.target.value)} required className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-[#5a31f4]" />
-          <textarea placeholder="Sinopse (Resuma sua história para atrair leitores...)" value={sinopseNova} onChange={(e) => setSinopseNova(e.target.value)} required className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none h-32 focus:ring-2 focus:ring-[#5a31f4]" />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <select value={idioma} onChange={(e) => setIdioma(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer focus:ring-2 focus:ring-[#5a31f4]">
-              <option value="Português">Português</option><option value="Inglês">Inglês</option><option value="Espanhol">Espanhol</option>
-            </select>
-            <select value={tipoHistoria} onChange={(e) => setTipoHistoria(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer focus:ring-2 focus:ring-[#5a31f4]">
-              <option value="Ficção">Ficção</option><option value="Fanfic">Fanfic</option><option value="Não ficção">Não ficção</option><option value="Poesia">Poesia</option>
-            </select>
-          </div>
-
-          <input type="text" placeholder="Tags (Ex: romance, magia). Separe por vírgulas." value={tags} onChange={(e) => setTags(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-[#5a31f4]" />
-          <input type="text" placeholder="Personagens Principais (Ex: Harry, Hermione)" value={personagensPrincipais} onChange={(e) => setPersonagensPrincipais(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-[#5a31f4]" />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <select value={publicoAlvo} onChange={(e) => setPublicoAlvo(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer text-sm focus:ring-2 focus:ring-[#5a31f4]">
-              <option value="Infantil (0-12 anos)">Infantil (0-12 anos)</option><option value="Jovem Adulto (13-18 anos)">Jovem Adulto (13-18 anos)</option><option value="Novo Adulto (18-25 anos)">Novo Adulto (18-25 anos)</option><option value="Adulto (25+ anos)">Adulto (25+ anos)</option>
-            </select>
-            <select value={direitosAutorais} onChange={(e) => setDireitosAutorais(e.target.value)} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 outline-none cursor-pointer text-sm focus:ring-2 focus:ring-[#5a31f4]">
-              <option value="Todos os Direitos Reservados">Todos os Direitos Reservados</option><option value="Domínio Público">Domínio Público</option><option value="Creative Commons (CC) Atribuição">Creative Commons (CC) Atribuição</option><option value="(CC) Atribuição-NãoComercial">(CC) Atribuição-NãoComercial</option><option value="(CC) Atribuição-NãoComercial-SemDerivações">(CC) Atribuição-NãoComercial-SemDerivações</option><option value="(CC) Atribuição-NãoComercial-CompartilhaIgual">(CC) Atribuição-NãoComercial-CompartilhaIgual</option><option value="(CC) Atribuição-CompartilhaIgual">(CC) Atribuição-CompartilhaIgual</option><option value="(CC) Atribuição-SemDerivações">(CC) Atribuição-SemDerivações</option>
-            </select>
-          </div>
-
-          <label className="flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-100 cursor-pointer hover:bg-red-100 transition-colors">
-            <input type="checkbox" checked={classificacaoAdulto} onChange={(e) => setClassificacaoAdulto(e.target.checked)} className="w-5 h-5 accent-red-500 cursor-pointer" />
-            <span className="text-sm font-bold text-red-600">Conteúdo +18 (História contém cenas explícitas ou gatilhos fortes)</span>
-          </label>
-
-          <div className="border-2 border-dashed border-gray-300 hover:border-[#5a31f4] transition-colors rounded-2xl p-6 bg-gray-50 text-center relative mt-2">
-            <input type="file" accept="image/*" onChange={(e) => setArquivoCapa(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-            <span className="text-sm text-gray-600 font-medium">{arquivoCapa ? arquivoCapa.name : "🖼️ Toque aqui para enviar a Capa do Livro"}</span>
-          </div>
-
-          <div className="flex gap-4 mt-4">
-            <button type="button" onClick={() => { setTelaLivroAberta(false); setLivroEditandoId(null); }} className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold rounded-full hover:bg-gray-200 transition-colors">Cancelar</button>
-            <button type="submit" className="flex-1 py-4 bg-[#5a31f4] text-white font-bold rounded-full shadow-md hover:bg-[#4924c9] transition-colors">Salvar Obra</button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  // ==========================================
-  // 4. VITRINE (PÚBLICA PARA TODOS)
+  // RENDERIZAÇÃO: NAVEGAÇÃO PRINCIPAL E ABAS
   // ==========================================
   return (
     <div className="min-h-screen bg-white text-gray-900 pb-28 font-sans">
       <header className="px-4 py-4 flex justify-between items-center max-w-7xl mx-auto">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setAbaAtual('inicio')}>
           <div className="w-8 h-8 bg-[#5a31f4] rounded-[10px] flex items-center justify-center text-white text-sm shadow-md">✒️</div>
           <h1 className="text-xl font-bold tracking-tight text-gray-900">Páginas</h1>
         </div>
@@ -397,15 +604,16 @@ function App() {
           <button className="text-gray-500 hover:text-gray-800">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
           </button>
-          <div onClick={() => exigirLogin(() => setAbaAtual('perfil'))} className="w-9 h-9 rounded-full bg-[#f3efff] border border-[#dcd1f3] flex items-center justify-center text-sm cursor-pointer hover:bg-[#e9e2ff] transition-colors">
-            👤
+
+          <div onClick={() => exigirLogin(() => setAbaAtual('perfil'))} className="w-10 h-10 rounded-full border-2 border-[#dcd1f3] flex items-center justify-center text-sm cursor-pointer overflow-hidden bg-gray-100 hover:scale-105 transition-transform">
+            {usuarioLogado?.url_foto_perfil ? <img src={usuarioLogado.url_foto_perfil} className="w-full h-full object-cover" /> : '👤'}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6">
+      <main className="max-w-7xl mx-auto">
         {abaAtual === 'inicio' && (
-          <>
+          <div className="px-4 sm:px-6 animate-fade-in">
             <div className="mb-6 relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
               <input type="text" placeholder="Buscar histórias, autores ou gêneros..." className="w-full pl-11 pr-4 py-3 bg-[#f8f7fb] border border-gray-100 rounded-2xl text-sm focus:outline-none" />
@@ -478,18 +686,135 @@ function App() {
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
 
-        {abaAtual === 'explorar' && <h2 className="text-xl font-bold pt-4">Explorar (Em breve)</h2>}
-        {abaAtual === 'biblioteca' && <h2 className="text-xl font-bold pt-4">Sua Estante (Em breve)</h2>}
-        {abaAtual === 'perfil' && (
-          <div className="pt-8 max-w-md mx-auto">
-            <h2 className="text-2xl font-bold mb-4 text-center">Configurações</h2>
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col items-center">
-              <div className="w-20 h-20 bg-[#f3efff] text-[#5a31f4] rounded-full flex items-center justify-center text-3xl mb-4 border-2 border-[#dcd1f3]">👤</div>
-              <p className="text-gray-600 mb-6 text-center text-sm">Você está conectado. Futuramente, aqui ficarão suas configurações de perfil.</p>
-              <button onClick={sair} className="px-6 py-4 bg-red-50 text-red-500 font-bold rounded-xl w-full hover:bg-red-100 transition-colors">Sair da Conta</button>
+        {abaAtual === 'explorar' && (
+          <div className="px-4 sm:px-6 animate-fade-in pt-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Explorar</h2>
+            <p className="text-sm text-gray-500 mb-8">Descubra as histórias que estão bombando na plataforma agora.</p>
+
+            {tagsEmAlta.length === 0 ? (
+              <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                <span className="text-3xl mb-2 block">🔍</span>
+                <p className="text-gray-500 text-sm font-medium">Nenhuma tag em alta no momento.</p>
+              </div>
+            ) : (
+              tagsEmAlta.map((tagObj) => (
+                <div key={tagObj.nome} className="mb-8">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold text-gray-900 capitalize flex items-center gap-2">
+                      <span className="bg-[#f3efff] text-[#5a31f4] w-8 h-8 rounded-full flex items-center justify-center text-sm">#</span>
+                      {tagObj.nome}
+                    </h3>
+                    <span className="text-[#5a31f4] text-[10px] font-bold bg-[#f8f7fb] px-2 py-1 rounded-lg">
+                      🔥 {tagObj.pontos} pontos
+                    </span>
+                  </div>
+
+                  <div className="flex overflow-x-auto pb-4 gap-4 snap-x hide-scrollbar">
+                    {livrosPorTag[tagObj.nome]?.length > 0 ? (
+                      livrosPorTag[tagObj.nome].map((livro) => (
+                        <div key={livro.id} className="min-w-[140px] max-w-[140px] h-[200px] rounded-[16px] overflow-hidden relative group cursor-pointer flex-shrink-0" onClick={() => abrirLivro(livro)}>
+                          <img src={livro.url_capa} className="absolute inset-0 w-full h-full object-cover z-0" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent z-10"></div>
+                          {livro.classificacao_adulto && <div className="absolute top-2 right-2 bg-red-600 text-white px-1.5 py-0.5 rounded text-[8px] font-bold z-20">+18</div>}
+                          <div className="absolute bottom-2 left-2 right-2 z-20">
+                            <h4 className="font-bold text-white text-xs mb-0.5 line-clamp-2">{livro.titulo}</h4>
+                            <p className="text-[9px] text-gray-300 mb-1">@{livro.autor?.username?.replace('@', '') || 'autor'}</p>
+                            <div className="flex gap-2 text-[9px] text-gray-300">
+                              <span>👁 {livro.visualizacoes || 0}</span><span>♡ {livro.curtidas_totales || 0}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">Nenhum livro encontrado para esta tag.</p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {abaAtual === 'biblioteca' && <h2 className="text-xl font-bold pt-4 px-6 animate-fade-in">Sua Estante (Em breve)</h2>}
+
+        {abaAtual === 'perfil' && usuarioLogado && (
+          <div className="pb-10 animate-fade-in">
+            <div className="relative bg-[#5a3e36] h-48 sm:h-64 rounded-b-3xl w-full group overflow-hidden"
+              style={{ backgroundImage: `url(${usuarioLogado.url_capa_perfil || ''})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+              <label className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
+                📷 Alterar Capa
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => mudarImagemPerfil('capa', e.target.files[0])} />
+              </label>
+            </div>
+
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 relative flex flex-col items-center -mt-16 sm:-mt-20">
+              <div className="relative group">
+                <div className="w-32 h-32 sm:w-40 sm:h-40 bg-white rounded-full p-1 shadow-lg">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-gray-200">
+                    {usuarioLogado.url_foto_perfil ? <img src={usuarioLogado.url_foto_perfil} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center w-full h-full text-4xl">👤</div>}
+                  </div>
+                </div>
+                <label className="absolute bottom-2 right-2 bg-[#5a31f4] text-white p-2.5 rounded-full cursor-pointer shadow-md hover:bg-[#4924c9] transition-transform hover:scale-105">
+                  ✏️
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => mudarImagemPerfil('foto', e.target.files[0])} />
+                </label>
+              </div>
+
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mt-4">{usuarioLogado.nome_perfil}</h2>
+              <p className="text-sm text-gray-500 font-medium">@{usuarioLogado.username}</p>
+
+              <div className="flex gap-8 sm:gap-12 mt-6 mb-8 text-center border-t border-b border-gray-100 py-4 w-full justify-center">
+                <div><span className="block font-bold text-lg text-gray-900">{livros.filter(l => l.autor_id === usuarioLogado.id).length}</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Obras</span></div>
+                <div><span className="block font-bold text-lg text-gray-900">0</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Listas</span></div>
+                <div><span className="block font-bold text-lg text-gray-900">0</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Seguidores</span></div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full mt-4">
+                <div className="col-span-1 bg-[#f8f7fb] p-6 rounded-3xl border border-gray-100 h-fit">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-gray-900">Sobre</h3>
+                    {!editandoPerfil && <button onClick={() => setEditandoPerfil(true)} className="text-xs text-[#5a31f4] font-bold hover:underline">Editar</button>}
+                  </div>
+
+                  {editandoPerfil ? (
+                    <form onSubmit={salvarEdicaoPerfil} className="flex flex-col gap-3">
+                      <input type="text" value={perfilForm.nome_perfil} onChange={e => setPerfilForm({ ...perfilForm, nome_perfil: e.target.value })} className="p-2 text-sm rounded-lg border w-full outline-none focus:ring-1 focus:ring-[#5a31f4]" placeholder="Nome" />
+                      <textarea value={perfilForm.bio} onChange={e => setPerfilForm({ ...perfilForm, bio: e.target.value })} className="p-2 text-sm rounded-lg border w-full h-24 outline-none focus:ring-1 focus:ring-[#5a31f4]" placeholder="Escreva sobre você..." />
+                      <input type="text" value={perfilForm.redes_sociais} onChange={e => setPerfilForm({ ...perfilForm, redes_sociais: e.target.value })} className="p-2 text-sm rounded-lg border w-full outline-none focus:ring-1 focus:ring-[#5a31f4]" placeholder="Link das redes (Ex: insta.com/seu_arroba)" />
+                      <div className="flex gap-2 mt-2">
+                        <button type="submit" className="flex-1 bg-[#5a31f4] text-white text-xs font-bold py-2 rounded-lg">Salvar</button>
+                        <button type="button" onClick={() => setEditandoPerfil(false)} className="flex-1 bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg">Cancelar</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{usuarioLogado.bio || "Este autor ainda não escreveu uma biografia."}</p>
+                      <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+                        <p className="text-xs text-gray-500 flex items-center gap-2">📅 Entrou em: <span className="font-semibold text-gray-800">{usuarioLogado.data_cadastro}</span></p>
+                        {usuarioLogado.redes_sociais && <p className="text-xs text-gray-500 flex items-center gap-2">🔗 Redes: <a href={usuarioLogado.redes_sociais.startsWith('http') ? usuarioLogado.redes_sociais : `https://${usuarioLogado.redes_sociais}`} target="_blank" rel="noreferrer" className="text-[#5a31f4] font-semibold hover:underline truncate">{usuarioLogado.redes_sociais}</a></p>}
+                      </div>
+                      <button onClick={sair} className="w-full mt-6 px-4 py-2.5 bg-red-50 text-red-500 text-xs font-bold rounded-xl hover:bg-red-100 transition-colors">Sair da Conta</button>
+                    </>
+                  )}
+                </div>
+
+                <div className="col-span-1 md:col-span-2">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-xl text-gray-900">Listas de Leitura</h3>
+                    <button className="text-sm bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl font-bold hover:bg-[#e9e2ff] transition-colors">+ Criar lista</button>
+                  </div>
+
+                  <div className="bg-white border border-gray-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-sm">
+                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-2xl mb-4 border border-dashed border-gray-300">📚</div>
+                    <h4 className="font-bold text-gray-800 mb-1">Nenhuma lista criada</h4>
+                    <p className="text-xs text-gray-500 max-w-xs mx-auto">Organize suas histórias favoritas em coleções personalizadas para ler mais tarde.</p>
+                  </div>
+                </div>
+
+              </div>
             </div>
           </div>
         )}

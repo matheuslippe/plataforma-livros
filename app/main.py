@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
@@ -6,13 +6,14 @@ from . import models, schemas, security
 from .database import engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from collections import defaultdict
+from fastapi.staticfiles import StaticFiles
+from fastapi import UploadFile, File
+import uuid
 import random
 import os
 import shutil
 import time
-from fastapi.staticfiles import StaticFiles
-from fastapi import UploadFile, File
-import uuid
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -96,6 +97,43 @@ def criar_usuario(usuario: schemas.UsuarioCriar, db: Session = Depends(get_db)):
     return novo_usuario
 
 
+@app.get("/usuarios/me", response_model=schemas.UsuarioResposta)
+def obter_meu_perfil(
+    db: Session = Depends(get_db), usuario_id: int = Depends(get_current_user)
+):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return usuario
+
+
+@app.put("/usuarios/me", response_model=schemas.UsuarioResposta)
+def atualizar_meu_perfil(
+    dados_atualizacao: schemas.UsuarioAtualizar,
+    db: Session = Depends(get_db),
+    usuario_id: int = Depends(get_current_user),
+):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Atualiza apenas os campos que o React enviou
+    if dados_atualizacao.nome_perfil is not None:
+        usuario.nome_perfil = dados_atualizacao.nome_perfil
+    if dados_atualizacao.bio is not None:
+        usuario.bio = dados_atualizacao.bio
+    if dados_atualizacao.redes_sociais is not None:
+        usuario.redes_sociais = dados_atualizacao.redes_sociais
+    if dados_atualizacao.url_foto_perfil is not None:
+        usuario.url_foto_perfil = dados_atualizacao.url_foto_perfil
+    if dados_atualizacao.url_capa_perfil is not None:
+        usuario.url_capa_perfil = dados_atualizacao.url_capa_perfil
+
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
 # --- Rotas de Livros ---
 
 
@@ -141,7 +179,7 @@ def atualizar_livro(
         .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_id)
         .first()
     )
-    if not libro:
+    if not livro:
         raise HTTPException(
             status_code=404, detail="Livro não encontrado ou não pertence a você"
         )
@@ -175,7 +213,7 @@ def deletar_livro(
         .filter(models.Livro.id == livro_id, models.Livro.autor_id == usuario_id)
         .first()
     )
-    if not libro:
+    if not livro:
         raise HTTPException(
             status_code=404, detail="Livro não encontrado ou não pertence a você"
         )
@@ -207,7 +245,11 @@ def criar_capitulo(
 
 
 @app.get("/livros/{livro_id}/capitulos", response_model=list[schemas.CapituloResposta])
-def listar_capitulos_do_livro(livro_id: int, db: Session = Depends(get_db)):
+def listar_capitulos_do_livro(
+    livro_id: int,
+    db: Session = Depends(get_db),
+    usuario_id: int = Depends(get_current_user),
+):
     return (
         db.query(models.Capitulo)
         .filter(models.Capitulo.livro_id == livro_id)
@@ -362,11 +404,65 @@ def obter_capa(nome_arquivo: str):
     raise HTTPException(status_code=404, detail="Capa não encontrada")
 
 
-@app.post("/upload-capa")
-def upload_capa(file: UploadFile = File(...)):
+@app.post("/upload-imagem")
+def upload_imagem(request: Request, file: UploadFile = File(...)):
     extensao = file.filename.split(".")[-1]
     nome_ficheiro = f"{int(time.time())}_{uuid.uuid4().hex[:8]}.{extensao}"
     caminho = f".capas/{nome_ficheiro}"
     with open(caminho, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    return {"url_capa": f"http://localhost:8000/capas/{nome_ficheiro}"}
+
+    base_url = str(request.base_url)
+    return {"url_imagem": f"{base_url}capas/{nome_ficheiro}"}
+
+
+# ==========================================
+# ROTAS DO EXPLORAR (ALGORITMO DE RECOMENDAÇÃO)
+# ==========================================
+
+
+@app.get("/explorar/tags-em-alta")
+def obter_tags_em_alta(db: Session = Depends(get_db)):
+    """
+    Analisa todos os livros e descobre quais tags estão bombando
+    com base nas visualizações e curtidas.
+    """
+    livros = db.query(models.Livro).all()
+    pontuacao_tags = defaultdict(int)
+
+    for livro in livros:
+        if livro.tags:
+            # 1 View = 1 ponto | 1 Curtida = 3 pontos
+            pontos = (livro.visualizacoes or 0) + ((livro.curtidas_totales or 0) * 3)
+
+            # Como salvamos as tags como texto (ex: "romance, magia"), separamos aqui
+            tags_lista = [tag.strip().lower() for tag in livro.tags.split(",")]
+
+            for tag in tags_lista:
+                if tag:  # Ignora se estiver vazio
+                    pontuacao_tags[tag] += pontos
+
+    # Ordena as tags da maior pontuação para a menor
+    tags_ordenadas = sorted(pontuacao_tags.items(), key=lambda x: x[1], reverse=True)
+
+    # Pega apenas as 5 tags mais populares no momento
+    top_tags = [{"nome": k, "pontos": v} for k, v in tags_ordenadas[:5]]
+
+    return top_tags
+
+
+@app.get("/explorar/livros-por-tag", response_model=list[schemas.LivroResposta])
+def obter_livros_por_tag(tag: str, db: Session = Depends(get_db)):
+    """
+    Busca os melhores livros que contêm uma tag específica,
+    ordenados pelos mais vistos primeiro.
+    """
+    # O comando .ilike(f"%{tag}%") procura a palavra dentro do texto da tag
+    livros = (
+        db.query(models.Livro)
+        .filter(models.Livro.tags.ilike(f"%{tag}%"))
+        .order_by(models.Livro.visualizacoes.desc())  # Os mais famosos primeiro
+        .limit(10)  # Traz só os 10 melhores dessa tag
+        .all()
+    )
+    return livros

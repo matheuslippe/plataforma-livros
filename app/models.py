@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from .database import Base
+from datetime import datetime
 
 
 class Curtida(Base):
@@ -19,6 +20,12 @@ class Usuario(Base):
     nome_perfil = Column(String)
     email = Column(String, unique=True, index=True)
     senha = Column(String)
+
+    url_foto_perfil = Column(String, nullable=True)
+    url_capa_perfil = Column(String, nullable=True)
+    bio = Column(String, nullable=True)
+    redes_sociais = Column(String, nullable=True)
+    data_cadastro = Column(String, default=lambda: datetime.now().strftime("%d/%m/%Y"))
 
 
 class Livro(Base):
