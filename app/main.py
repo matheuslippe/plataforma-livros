@@ -116,6 +116,17 @@ def atualizar_meu_perfil(
     return usuario_atual
 
 
+@app.get("/usuarios/{usuario_id}")
+def obter_perfil_usuario(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Isso transforma o modelo SQLAlchemy em um dicionário simples que o Pydantic/FastAPI aceita facilmente
+    return usuario.__dict__
+
+
 # --- Rotas de Livros ---
 
 
@@ -487,3 +498,42 @@ def remover_livro_da_lista(
         db.commit()
         return {"mensagem": "Livro removido da lista."}
     raise HTTPException(status_code=400, detail="O livro não está nesta lista.")
+
+
+@app.post("/usuarios/{usuario_id}/seguir")
+def seguir_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    if usuario_id == usuario_atual.id:
+        raise HTTPException(status_code=400, detail="Você não pode seguir a si mesmo.")
+
+    usuario_a_seguir = (
+        db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    )
+    if not usuario_a_seguir:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+    if usuario_a_seguir not in usuario_atual.seguindo:
+        usuario_atual.seguindo.append(usuario_a_seguir)
+        db.commit()
+
+    return {"mensagem": f"Você agora segue {usuario_a_seguir.username}"}
+
+
+@app.delete("/usuarios/{usuario_id}/deixar-de-seguir")
+def deixar_de_seguir(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_atual: models.Usuario = Depends(security.obter_usuario_atual),
+):
+    usuario_alvo = (
+        db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    )
+    if usuario_alvo in usuario_atual.seguindo:
+        usuario_atual.seguindo.remove(usuario_alvo)
+        db.commit()
+        return {"mensagem": f"Você deixou de seguir {usuario_alvo.username}"}
+
+    raise HTTPException(status_code=400, detail="Você não segue este usuário.")

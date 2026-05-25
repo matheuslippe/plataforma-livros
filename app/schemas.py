@@ -19,6 +19,17 @@ class UsuarioAtualizar(BaseModel):
     url_capa_perfil: str | None = None
 
 
+# Schema simplificado para evitar loops infinitos ao listar seguidos
+class UsuarioSimples(BaseModel):
+    id: int
+    username: str
+    nome_perfil: str
+    url_foto_perfil: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class UsuarioResposta(BaseModel):
     id: int
     username: str
@@ -29,6 +40,8 @@ class UsuarioResposta(BaseModel):
     bio: str | None = None
     redes_sociais: str | None = None
     data_cadastro: str | None = None
+    # Campo novo para o sistema de seguidores
+    seguindo: list[UsuarioSimples] = []
 
     class Config:
         from_attributes = True
@@ -116,7 +129,7 @@ class ResetSenha(BaseModel):
     nova_senha: str
 
 
-# ESQUEMAS DE LISTAS DE LEITURA
+# --- Esquemas de Listas de Leitura ---
 
 
 class ListaLeituraCriar(BaseModel):
@@ -129,9 +142,6 @@ class ListaLeituraResposta(BaseModel):
     nome: str
     descricao: str | None
     usuario_id: int
-
-    # O Pydantic é inteligente: ele vai puxar a lista de livros completa
-    # reaproveitando a classe LivroResposta que você já criou antes!
     livros: list[LivroResposta] = []
 
     class Config:
