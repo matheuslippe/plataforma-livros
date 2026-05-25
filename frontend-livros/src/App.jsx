@@ -7,15 +7,16 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('meu_token_jwt') || '')
   const [usuarioId, setUsuarioId] = useState(Number(localStorage.getItem('meu_usuario_id')) || null)
   const [usuarioLogado, setUsuarioLogado] = useState(null)
-  const [mostrarLogin, setMostrarLogin] = useState(false)
-  const [modoLogin, setModoLogin] = useState(true)
+  const [usuarioExibido, setUsuarioExibido] = useState(null)
+  const [mostrarLogin, setMostrarLogin] = useState(false);
   const [mensagem, setMensagem] = useState('')
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [username, setUsername] = useState('')
   const [nomePerfil, setNomePerfil] = useState('')
+  const [modoLogin, setModoLogin] = useState(true);
 
-  // --- Estados do Perfil ---
+  // --- Estados do Perfil e Seguidores ---
   const [editandoPerfil, setEditandoPerfil] = useState(false)
   const [perfilForm, setPerfilForm] = useState({ nome_perfil: '', bio: '', redes_sociais: '' })
 
@@ -119,6 +120,52 @@ function App() {
     } catch (erro) { setMensagem('Erro de conexão.'); }
   }
 
+  const alternarSeguir = async (usuarioAlvoId) => {
+    const estaSeguindo = usuarioLogado?.seguindo.some(u => u.id === usuarioAlvoId);
+    const metodo = estaSeguindo ? 'DELETE' : 'POST';
+    const rota = estaSeguindo ? 'deixar-de-seguir' : 'seguir';
+
+    try {
+      const res = await fetch(`${API_URL}/usuarios/${usuarioAlvoId}/${rota}`, {
+        method: metodo,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) carregarMeuPerfil();
+    } catch (e) { alert("Erro ao processar ação."); }
+  };
+
+  const renderizarAbaSeguindo = () => (
+    <div className="px-6 py-8 animate-fade-in max-w-2xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6">Quem você segue</h2>
+      <div className="space-y-4">
+        {usuarioLogado?.seguindo.length === 0 ? (
+          <p className="text-gray-500">Você ainda não segue ninguém.</p>
+        ) : (
+          usuarioLogado?.seguindo.map(autor => (
+            <div key={autor.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+              <div className="flex items-center gap-3">
+                <img src={autor.url_foto_perfil || '👤'} className="w-12 h-12 rounded-full object-cover" />
+                <div>
+                  <h4 className="font-bold">{autor.nome_perfil}</h4>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      irParaPerfilAutor(livro.autor_id);
+                    }}
+                    className="text-sm text-gray-500 hover:text-[#5a31f4] cursor-pointer underline"
+                  >
+                    @{livro.autor?.username?.replace('@', '')}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => alternarSeguir(autor.id)} className="text-xs bg-gray-100 px-4 py-2 rounded-full font-bold">Deixar de seguir</button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   const sair = () => {
     localStorage.removeItem('meu_token_jwt');
     localStorage.removeItem('meu_usuario_id');
@@ -148,6 +195,25 @@ function App() {
       }
     } catch (e) { }
   }
+
+  const irParaPerfilAutor = async (autorId) => {
+    try {
+      const res = await fetch(`${API_URL}/usuarios/${autorId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const dados = await res.json();
+
+        setUsuarioExibido(dados);
+        setLivroSelecionado(null);
+        setAbaAtual('perfil_autor');
+
+      }
+    } catch (e) {
+      console.error("Erro ao carregar perfil do autor:", e);
+      alert("Erro ao carregar perfil do autor.");
+    }
+  };
 
   const salvarEdicaoPerfil = async (e) => {
     e.preventDefault();
@@ -560,8 +626,17 @@ function App() {
       <div className="min-h-screen bg-white text-gray-900 p-4 sm:p-8 font-sans pb-24 relative">
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-6">
-            <button onClick={() => setLivroSelecionado(null)} className="text-[#5a31f4] hover:underline font-semibold flex items-center gap-2">
-              ← Voltar para Vitrine
+            <button
+              onClick={() => {
+                setLivroSelecionado(null);
+                // Se você veio de um perfil de autor, volta pra ele, se não, volta pro início
+                if (!usuarioExibido) {
+                  setAbaAtual('inicio');
+                }
+              }}
+              className="text-[#5a31f4] hover:underline font-semibold flex items-center gap-2"
+            >
+              ← Voltar
             </button>
 
             {/* BOTÃO DE SALVAR NA LISTA (Aparece para todos logados) */}
@@ -605,7 +680,19 @@ function App() {
             <img src={livroSelecionado.url_capa} className="w-32 h-48 object-cover rounded-2xl shadow-md" alt="Capa" />
             <div className="flex-1">
               <h1 className="text-3xl sm:text-4xl font-bold mb-2">{livroSelecionado.titulo}</h1>
-              <p className="text-sm text-gray-500 mb-4 font-medium">Por @{livroSelecionado.autor?.username?.replace('@', '') || 'autor'}</p>
+              <p className="text-[14px] text-gray-500 font-medium mb-4">
+                Por{' '}
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Usamos livroSelecionado.autor_id aqui!
+                    irParaPerfilAutor(livroSelecionado.autor_id);
+                  }}
+                  className="text-[#5a31f4] hover:underline cursor-pointer font-bold"
+                >
+                  @{livroSelecionado.autor?.username?.replace('@', '')}
+                </span>
+              </p>
 
               <div className="flex flex-wrap gap-2 mb-4">
                 <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">{livroSelecionado.idioma}</span>
@@ -730,11 +817,6 @@ function App() {
         {/* ABA INÍCIO */}
         {abaAtual === 'inicio' && (
           <div className="px-4 sm:px-6 animate-fade-in">
-            <div className="mb-6 relative">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
-              <input type="text" placeholder="Buscar histórias, autores ou gêneros..." className="w-full pl-11 pr-4 py-3 bg-[#f8f7fb] border border-gray-100 rounded-2xl text-sm focus:outline-none" />
-            </div>
-
             <div className="bg-[#f2effb] rounded-3xl p-6 mb-8 flex items-center justify-between relative overflow-hidden h-[200px]">
               <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-30 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
               <div className="absolute right-[-20%] top-[-10%] w-[150%] h-[150%] bg-gradient-to-l from-white/40 to-transparent rounded-full pointer-events-none"></div>
@@ -892,8 +974,18 @@ function App() {
                               <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-20 transition-opacity"></div>
                             </div>
                             <h4 className="font-bold text-gray-800 text-xs mb-0.5 line-clamp-1">{livro.titulo}</h4>
-                            <p className="text-[10px] text-gray-500 line-clamp-1">Por @{livro.autor?.username?.replace('@', '')}</p>
-                          </div>
+                            <p className="text-[10px] text-gray-500 line-clamp-1">
+                              Por{' '}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Impede que o clique abra o livro ao invés do perfil
+                                  irParaPerfilAutor(livro.autor_id); // Usa o autor_id do livro
+                                }}
+                                className="hover:text-[#5a31f4] cursor-pointer underline"
+                              >
+                                @{livro.autor?.username?.replace('@', '')}
+                              </span>
+                            </p>                          </div>
                         ))
                       ) : (
                         <p className="text-sm text-gray-400 italic py-4">Esta lista está vazia. Salve alguns livros nela!</p>
@@ -905,6 +997,7 @@ function App() {
             )}
           </div>
         )}
+        {abaAtual === 'seguindo' && renderizarAbaSeguindo()}
 
         {/* ABA PERFIL */}
         {abaAtual === 'perfil' && usuarioLogado && (
@@ -936,6 +1029,10 @@ function App() {
               <div className="flex gap-8 sm:gap-12 mt-6 mb-8 text-center border-t border-b border-gray-100 py-4 w-full justify-center">
                 <div><span className="block font-bold text-lg text-gray-900">{livros.filter(l => l.autor_id === usuarioLogado.id).length}</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Obras</span></div>
                 <div><span className="block font-bold text-lg text-gray-900">{minhasListas.length}</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Listas</span></div>
+                <div onClick={() => setAbaAtual('seguindo')} className="cursor-pointer hover:opacity-75 transition-opacity">
+                  <span className="block font-bold text-lg text-gray-900">{usuarioLogado.seguindo.length}</span>
+                  <span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Autores</span>
+                </div>
                 <div><span className="block font-bold text-lg text-gray-900">0</span><span className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Seguidores</span></div>
               </div>
 
@@ -998,6 +1095,67 @@ function App() {
               </div>
             </div>
             {renderizarModalNovaLista()}
+          </div>
+        )}
+
+        {/* ABA PERFIL DE AUTOR */}
+        {abaAtual === 'perfil_autor' && usuarioExibido && (
+          <div className="px-6 py-8 animate-fade-in max-w-2xl mx-auto pb-24">
+            <button
+              onClick={() => { setAbaAtual('inicio'); setUsuarioExibido(null); }}
+              className="mb-6 text-sm text-gray-500 font-bold hover:text-[#5a31f4] transition-colors"
+            >
+              ← Voltar para Início
+            </button>
+
+            {/* Cabeçalho */}
+            <div className="flex items-center gap-6 mb-8 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+              <img
+                src={usuarioExibido.url_foto_perfil || 'https://ui-avatars.com/api/?name=' + usuarioExibido.nome_perfil}
+                className="w-24 h-24 rounded-full object-cover border-4 border-[#f3efff]"
+              />
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold text-gray-900">{usuarioExibido.nome_perfil}</h2>
+                <p className="text-gray-500 font-medium mb-4">@{usuarioExibido.username}</p>
+
+                <button
+                  onClick={() => alternarSeguir(usuarioExibido.id)}
+                  className={`px-8 py-2.5 rounded-full font-bold text-sm transition-all shadow-md ${usuarioLogado?.seguindo?.some(u => u.id === usuarioExibido.id)
+                    ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-[#5a31f4] text-white hover:bg-[#4924c9]"
+                    }`}
+                >
+                  {usuarioLogado?.seguindo?.some(u => u.id === usuarioExibido.id) ? "Seguindo" : "Seguir Autor"}
+                </button>
+              </div>
+            </div>
+
+            {/* Biografia */}
+            <div className="bg-[#f8f7fb] p-6 rounded-3xl mb-8 border border-gray-100">
+              <h4 className="font-bold text-gray-900 mb-2">Sobre</h4>
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                {usuarioExibido.bio || "Este autor ainda não escreveu uma biografia."}
+              </p>
+            </div>
+
+            {/* Obras do Autor */}
+            <h3 className="font-bold text-xl mb-6">Obras publicadas</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {livros.filter(l => l.autor_id === usuarioExibido.id).map(livro => (
+                <div
+                  key={livro.id}
+                  className="cursor-pointer group"
+                  onClick={() => abrirLivro(livro)}
+                >
+                  <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-sm mb-3 group-hover:scale-[1.02] transition-transform">
+                    <img src={livro.url_capa} className="w-full h-full object-cover" />
+                  </div>
+                  <h4 className="font-bold text-sm text-gray-800 line-clamp-1 group-hover:text-[#5a31f4]">
+                    {livro.titulo}
+                  </h4>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>
