@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
-const API_URL = 'http://172.16.21.21:8000'
+// Pega o IP dinamicamente para funcionar no celular e em outras máquinas locais
+const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
 
 function App() {
   // --- Estados do Usuário ---
@@ -40,13 +41,15 @@ function App() {
   const [livroEditandoId, setLivroEditandoId] = useState(null)
   const [livroSelecionado, setLivroSelecionado] = useState(null)
 
-  // --- Estados de Capítulos ---
+  // --- Estados de Capítulos e Paginação ---
   const [capitulos, setCapitulos] = useState([])
   const [tituloCapitulo, setTituloCapitulo] = useState('')
   const [conteudoCapitulo, setConteudoCapitulo] = useState('')
   const [capituloEditandoId, setCapituloEditandoId] = useState(null)
   const [capituloLendo, setCapituloLendo] = useState(null)
-  const [paginaAtual, setPaginaAtual] = useState(0) // Estado da página de leitura
+  const [paginaAtual, setPaginaAtual] = useState(0)
+  const [totalPaginas, setTotalPaginas] = useState(1)
+  const textoRef = useRef(null)
 
   // --- Estados do Explorar ---
   const [tagsEmAlta, setTagsEmAlta] = useState([])
@@ -57,32 +60,6 @@ function App() {
   const [modalNovaLista, setModalNovaLista] = useState(false)
   const [formLista, setFormLista] = useState({ nome: '', descricao: '' })
   const [modalSalvarLivro, setModalSalvarLivro] = useState(false)
-
-  // ==========================================
-  // FUNÇÃO DE APOIO: PAGINAÇÃO
-  // ==========================================
-  const dividirTextoEmPaginas = (texto, limiteCaracteres = 1200) => {
-    if (!texto) return [];
-
-    const paragrafos = texto.split('\n');
-    const paginas = [];
-    let paginaCorrente = '';
-
-    paragrafos.forEach(paragrafo => {
-      if ((paginaCorrente.length + paragrafo.length) > limiteCaracteres && paginaCorrente.length > 0) {
-        paginas.push(paginaCorrente);
-        paginaCorrente = paragrafo + '\n';
-      } else {
-        paginaCorrente += paragrafo + '\n';
-      }
-    });
-
-    if (paginaCorrente.trim()) {
-      paginas.push(paginaCorrente);
-    }
-
-    return paginas.length > 0 ? paginas : [''];
-  };
 
   // ==========================================
   // EFEITOS DE INICIALIZAÇÃO E CONTROLE
@@ -100,6 +77,34 @@ function App() {
     if (abaAtual === 'explorar') carregarExplorar();
     if (abaAtual === 'biblioteca') buscarMinhasListas();
   }, [abaAtual])
+
+  // Efeito para calcular a paginação dinâmica (Estilo Kindle Blindado)
+  useEffect(() => {
+    const calcularPaginas = () => {
+      if (textoRef.current) {
+        const sw = textoRef.current.scrollWidth;
+        const cw = textoRef.current.clientWidth;
+        if (cw > 0) {
+          // 32 representa os 32px (2rem) do columnGap
+          const paginasCalculadas = Math.round((sw + 32) / (cw + 32));
+          setTotalPaginas(paginasCalculadas > 0 ? paginasCalculadas : 1);
+
+          // Se a tela encolher, garante que a página atual não ultrapasse o total
+          setPaginaAtual(prev => prev >= paginasCalculadas ? Math.max(0, paginasCalculadas - 1) : prev);
+        }
+      }
+    };
+
+    if (capituloLendo) {
+      // 200ms de atraso garante que o CSS renderizou a tela antes de medir
+      const timer = setTimeout(calcularPaginas, 200);
+      window.addEventListener('resize', calcularPaginas);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', calcularPaginas);
+      };
+    }
+  }, [capituloLendo]);
 
   const exigirLogin = (acao_permitida) => {
     if (token) acao_permitida()
@@ -397,7 +402,7 @@ function App() {
 
   const iniciarLeituraCapitulo = async (cap) => {
     setCapituloLendo(cap);
-    setPaginaAtual(0); // Reinicia a página ao abrir um capítulo novo
+    setPaginaAtual(0);
     try {
       await fetch(`${API_URL}/capitulos/${cap.id}/visualizar`, { method: 'POST' });
       buscarLivros();
@@ -645,16 +650,18 @@ function App() {
   }
 
   // ==========================================
-  // RENDERIZAÇÃO: LEITURA E CAPÍTULOS
+  // RENDERIZAÇÃO: LEITURA E CAPÍTULOS (DUAS COLUNAS)
   // ==========================================
   if (livroSelecionado) {
-    const souDonoDoLivro = token && livroSelecionado.autor_id === usuarioId
+    const souDonoDoLivro = token && livroSelecionado.autor_id === usuarioId;
     const livroAtualizado = livros.find(l => l.id === livroSelecionado.id) || livroSelecionado;
 
     return (
       <div className="min-h-screen bg-white text-gray-900 p-4 sm:p-8 font-sans pb-24 relative">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-8 items-start">
+
+          {/* COLUNA ESQUERDA: CAPA E INFO FIXA */}
+          <div className="w-full md:w-[280px] lg:w-[320px] flex-shrink-0 flex flex-col gap-4 sticky top-8 z-10">
             <button
               onClick={() => {
                 setLivroSelecionado(null);
@@ -662,195 +669,202 @@ function App() {
                   setAbaAtual('inicio');
                 }
               }}
-              className="text-[#5a31f4] hover:underline font-semibold flex items-center gap-2"
+              className="text-[#5a31f4] hover:underline font-semibold flex items-center gap-2 w-fit mb-2"
             >
               ← Voltar
             </button>
 
-            {/* BOTÃO DE SALVAR NA LISTA (Aparece para todos logados) */}
-            {token && !capituloLendo && (
-              <div className="relative">
-                <button onClick={() => setModalSalvarLivro(!modalSalvarLivro)} className="bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-[#e9e2ff] flex items-center gap-2 transition-colors">
-                  <span>+</span> Salvar na Lista
-                </button>
+            <img src={livroSelecionado.url_capa} className="w-full aspect-[2/3] object-cover rounded-2xl shadow-md" alt="Capa" />
 
-                {/* MODAL SUSPENSO DAS LISTAS */}
-                {modalSalvarLivro && (
-                  <div className="absolute right-0 top-12 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Suas Listas</h4>
-                    <div className="max-h-48 overflow-y-auto">
-                      {minhasListas.length === 0 ? (
-                        <p className="text-xs text-gray-500 p-2 text-center">Você não tem listas.</p>
-                      ) : (
-                        minhasListas.map(lista => {
-                          const estaNaLista = verificaSeLivroEstaNaLista(lista);
-                          return (
-                            <button key={lista.id} onClick={() => alterarLivroNaLista(lista.id, !estaNaLista)} className="w-full text-left p-3 hover:bg-gray-50 rounded-xl flex items-center justify-between transition-colors">
-                              <span className="text-sm font-medium text-gray-800 line-clamp-1">{lista.nome}</span>
-                              {estaNaLista && <span className="text-[#5a31f4]">✔</span>}
-                            </button>
-                          )
-                        })
-                      )}
-                    </div>
-                    <div className="border-t border-gray-100 mt-2 pt-2">
-                      <button onClick={() => { setModalSalvarLivro(false); setModalNovaLista(true); }} className="w-full text-left p-3 hover:bg-[#f3efff] rounded-xl text-sm font-bold text-[#5a31f4] flex items-center gap-2">
-                        <span>+</span> Criar nova lista
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="mb-8 flex flex-col md:flex-row gap-6 items-start">
-            <img src={livroSelecionado.url_capa} className="w-32 h-48 object-cover rounded-2xl shadow-md" alt="Capa" />
-            <div className="flex-1">
-              <h1 className="text-3xl sm:text-4xl font-bold mb-2">{livroSelecionado.titulo}</h1>
-              <p className="text-[14px] text-gray-500 font-medium mb-4">
+            <div>
+              <h1 className="text-2xl font-bold leading-tight mb-1">{livroSelecionado.titulo}</h1>
+              <p className="text-sm text-gray-500 font-medium">
                 Por{' '}
                 <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    irParaPerfilAutor(livroSelecionado.autor_id);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); irParaPerfilAutor(livroSelecionado.autor_id); }}
                   className="text-[#5a31f4] hover:underline cursor-pointer font-bold"
                 >
                   @{livroSelecionado.autor?.username?.replace('@', '')}
                 </span>
               </p>
-
-              <div className="flex flex-wrap gap-2 mb-4">
-                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">{livroSelecionado.idioma}</span>
-                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">{livroSelecionado.tipo_historia}</span>
-                {livroSelecionado.classificacao_adulto && <span className="px-2 py-1 bg-red-100 text-red-600 font-bold text-xs rounded-md">+18</span>}
-              </div>
-
-              <div className="flex items-center gap-4 mb-4">
-                <span className="text-gray-500 text-sm font-medium flex items-center gap-1">👁 {livroAtualizado.visualizacoes || 0} Visitas Totais</span>
-                <span className="text-gray-500 text-sm font-medium flex items-center gap-1">♡ {livroAtualizado.curtidas_totales || 0} Curtidas Totais</span>
-              </div>
-
-              <p className="text-gray-600 leading-relaxed text-sm whitespace-pre-wrap">{livroSelecionado.sinopse}</p>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-md">{livroSelecionado.idioma}</span>
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-md">{livroSelecionado.tipo_historia}</span>
+              {livroSelecionado.classificacao_adulto && <span className="px-2 py-1 bg-red-100 text-red-600 font-bold text-[10px] rounded-md">+18</span>}
+            </div>
+
+            <div className="flex flex-col text-xs text-gray-500 font-medium gap-1 bg-[#f8f7fb] p-3 rounded-xl border border-gray-100">
+              <span>👁 {livroAtualizado.visualizacoes || 0} Visitas Totais</span>
+              <span>♡ {livroAtualizado.curtidas_totales || 0} Curtidas Totais</span>
+            </div>
+
+            <p className="text-gray-600 text-sm whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto custom-scrollbar pr-2">
+              {livroSelecionado.sinopse}
+            </p>
+
             {souDonoDoLivro && (
-              <div className="flex flex-col gap-2">
-                <button onClick={() => iniciarEdicaoLivro(livroSelecionado)} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm hover:bg-gray-200">Editar Detalhes</button>
-                <button onClick={() => deletarLivro(livroSelecionado.id)} className="px-4 py-2 bg-red-50 text-red-500 font-bold rounded-xl text-sm hover:bg-red-100">Excluir Obra</button>
+              <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-gray-100">
+                <button onClick={() => iniciarEdicaoLivro(livroSelecionado)} className="w-full py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs hover:bg-gray-200 transition-colors">Editar Detalhes</button>
+                <button onClick={() => deletarLivro(livroSelecionado.id)} className="w-full py-2.5 bg-red-50 text-red-500 font-bold rounded-xl text-xs hover:bg-red-100 transition-colors">Excluir Obra</button>
               </div>
             )}
           </div>
 
-          {souDonoDoLivro && !capituloLendo && (
-            <div className="bg-[#f8f7fb] rounded-2xl p-6 mb-8 border border-gray-100">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">{capituloEditandoId ? "Editar Capítulo" : "Escrever Novo Capítulo"}</h3>
-              <form onSubmit={salvarCapitulo} className="flex flex-col gap-4">
-                <input type="text" placeholder="Título do Capítulo" value={tituloCapitulo} onChange={(e) => setTituloCapitulo(e.target.value)} required className="p-4 rounded-xl bg-white border border-gray-100 focus:ring-2 focus:ring-[#5a31f4] outline-none w-full" />
-                <textarea placeholder="Escreva sua história aqui..." value={conteudoCapitulo} onChange={(e) => setConteudoCapitulo(e.target.value)} required className="p-4 rounded-xl bg-white border border-gray-100 focus:ring-2 focus:ring-[#5a31f4] outline-none w-full h-48 resize-y" />
-                <div className="flex gap-3">
-                  <button type="submit" className="px-6 py-3 bg-[#5a31f4] text-white font-semibold rounded-xl text-sm hover:bg-[#4924c9]">{capituloEditandoId ? "Atualizar" : "Publicar"}</button>
-                  {capituloEditandoId && (
-                    <button type="button" onClick={() => { setCapituloEditandoId(null); setTituloCapitulo(''); setConteudoCapitulo(''); }} className="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-300">Cancelar</button>
-                  )}
-                </div>
-              </form>
-            </div>
-          )}
+          {/* COLUNA DIREITA: ÍNDICE OU LEITURA */}
+          <div className="flex-1 w-full flex flex-col min-w-0">
 
-          {capituloLendo ? (
-            <div className="bg-[#f8f7fb] p-6 sm:p-10 rounded-3xl mt-8 shadow-inner border border-gray-100">
-              <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="mb-8 text-gray-500 font-bold hover:text-[#5a31f4] flex items-center gap-2 transition-colors">
-                ← Voltar para o Índice
-              </button>
+            {/* Topo da Direita: Salvar na Lista */}
+            <div className="flex justify-end mb-4 min-h-[40px]">
+              {token && !capituloLendo && (
+                <div className="relative">
+                  <button onClick={() => setModalSalvarLivro(!modalSalvarLivro)} className="bg-[#f3efff] text-[#5a31f4] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-[#e9e2ff] flex items-center gap-2 transition-colors">
+                    <span>+</span> Salvar na Lista
+                  </button>
 
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">{capituloLendo.titulo_do_capitulo}</h2>
-
-              <div className="flex items-center gap-4 mb-10 pb-6 border-b border-gray-200">
-                <p className="text-sm text-gray-500 font-medium">👁 {capituloLendo.visualizacoes} Leituras</p>
-                <button onClick={() => curtirCapitulo(capituloLendo.id)} className="flex items-center gap-1 text-sm font-bold text-rose-500 hover:bg-rose-100 transition-colors bg-rose-50 px-4 py-2 rounded-xl shadow-sm">
-                  ♡ {capituloLendo.curtidas_totales || 0} Curtir Capítulo
-                </button>
-              </div>
-
-              {/* INÍCIO DO FORMATO LIVRO COM PAGINAÇÃO */}
-              <div className="min-h-[400px]">
-                {(() => {
-                  const paginas = dividirTextoEmPaginas(capituloLendo.conteudo_texto, 1200);
-
-                  return (
-                    <>
-                      <div className="prose max-w-none text-gray-800 leading-loose whitespace-pre-wrap font-serif text-lg md:text-xl">
-                        {paginas[paginaAtual]}
-                      </div>
-
-                      {/* Controles de Navegação de Página */}
-                      <div className="flex items-center justify-between mt-12 pt-6 border-t border-gray-200">
-                        <button
-                          onClick={() => setPaginaAtual(prev => Math.max(0, prev - 1))}
-                          disabled={paginaAtual === 0}
-                          className={`px-6 py-3 font-bold rounded-xl transition-colors ${paginaAtual === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
-                        >
-                          ← Página Anterior
-                        </button>
-
-                        <span className="text-sm text-gray-500 font-bold">
-                          {paginaAtual + 1} de {paginas.length}
-                        </span>
-
-                        <button
-                          onClick={() => setPaginaAtual(prev => Math.min(paginas.length - 1, prev + 1))}
-                          disabled={paginaAtual === paginas.length - 1}
-                          className={`px-6 py-3 font-bold rounded-xl transition-colors ${paginaAtual === paginas.length - 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#5a31f4] text-white hover:bg-[#4924c9]'}`}
-                        >
-                          Próxima Página →
-                        </button>
-                      </div>
-
-                      {/* Botão de finalizar aparece apenas na última página */}
-                      {paginaAtual === paginas.length - 1 && (
-                        <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="mt-8 w-full py-5 bg-gray-200 text-gray-800 font-bold rounded-2xl hover:bg-gray-300 transition-colors">
-                          Terminei este capítulo
-                        </button>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          ) : (
-            <>
-              <h3 className="text-xl font-bold mb-6 mt-8">Índice de Capítulos</h3>
-              <div className="space-y-3">
-                {capitulos.length === 0 ? (
-                  <p className="text-gray-500 py-8 bg-gray-50 text-center rounded-2xl border border-dashed border-gray-200">Nenhum capítulo publicado ainda.</p>
-                ) : (
-                  capitulos.map((cap) => (
-                    <div key={cap.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-[#5a31f4] transition-colors cursor-pointer group" onClick={() => iniciarLeituraCapitulo(cap)}>
-                      <div>
-                        <h4 className="font-bold text-gray-900 text-lg group-hover:text-[#5a31f4] transition-colors">Capítulo {cap.ordem_leitura}: {cap.titulo_do_capitulo}</h4>
-                        <div className="flex gap-4 mt-1">
-                          <p className="text-xs text-gray-400 font-medium">👁 {cap.visualizacoes} Leituras</p>
-                          <p className="text-xs text-rose-400 font-medium">♡ {cap.curtidas_totales} Curtidas</p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2 w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => iniciarLeituraCapitulo(cap)} className="flex-1 sm:flex-none px-6 py-2.5 bg-[#f3efff] text-[#5a31f4] font-bold rounded-xl text-sm hover:bg-[#e9e2ff] transition-colors">Ler</button>
-                        {souDonoDoLivro && (
-                          <>
-                            <button onClick={() => iniciarEdicaoCapitulo(cap)} className="px-4 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm hover:bg-gray-200">Editar</button>
-                            <button onClick={() => deletarCapitulo(cap.id)} className="px-4 py-2.5 bg-red-50 text-red-500 font-bold rounded-xl text-sm hover:bg-red-100">Excluir</button>
-                          </>
+                  {modalSalvarLivro && (
+                    <div className="absolute right-0 top-12 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 z-50">
+                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2 pt-2">Suas Listas</h4>
+                      <div className="max-h-48 overflow-y-auto">
+                        {minhasListas.length === 0 ? (
+                          <p className="text-xs text-gray-500 p-2 text-center">Você não tem listas.</p>
+                        ) : (
+                          minhasListas.map(lista => {
+                            const estaNaLista = verificaSeLivroEstaNaLista(lista);
+                            return (
+                              <button key={lista.id} onClick={() => alterarLivroNaLista(lista.id, !estaNaLista)} className="w-full text-left p-3 hover:bg-gray-50 rounded-xl flex items-center justify-between transition-colors">
+                                <span className="text-sm font-medium text-gray-800 line-clamp-1">{lista.nome}</span>
+                                {estaNaLista && <span className="text-[#5a31f4]">✔</span>}
+                              </button>
+                            )
+                          })
                         )}
                       </div>
+                      <div className="border-t border-gray-100 mt-2 pt-2">
+                        <button onClick={() => { setModalSalvarLivro(false); setModalNovaLista(true); }} className="w-full text-left p-3 hover:bg-[#f3efff] rounded-xl text-sm font-bold text-[#5a31f4] flex items-center gap-2">
+                          <span>+</span> Criar nova lista
+                        </button>
+                      </div>
                     </div>
-                  ))
-                )}
+                  )}
+                </div>
+              )}
+            </div>
+
+            {capituloLendo ? (
+              // ========================================================
+              // MODO LEITURA COM PAGINAÇÃO POR CSS COLUMNS + BLINDAGEM DE HEIGHT
+              // ========================================================
+              <div className="bg-[#f8f7fb] p-6 sm:p-10 rounded-3xl shadow-inner border border-gray-100 flex flex-col h-[75vh] md:h-[85vh]">
+                <div className="flex-shrink-0">
+                  <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="mb-4 text-gray-500 font-bold hover:text-[#5a31f4] flex items-center gap-2 transition-colors w-fit">
+                    ← Voltar para o Índice
+                  </button>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 truncate">{capituloLendo.titulo_do_capitulo}</h2>
+                  <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-200">
+                    <p className="text-xs text-gray-500 font-medium">👁 {capituloLendo.visualizacoes} Leituras</p>
+                    <button onClick={() => curtirCapitulo(capituloLendo.id)} className="flex items-center gap-1 text-xs font-bold text-rose-500 hover:bg-rose-100 transition-colors bg-rose-50 px-3 py-1.5 rounded-lg shadow-sm">
+                      ♡ {capituloLendo.curtidas_totales || 0} Curtir Capítulo
+                    </button>
+                  </div>
+                </div>
+
+                {/* CONTAINER DO TEXTO - O min-h-0 blinda contra o bug do flexbox */}
+                <div className="flex-1 relative overflow-hidden min-h-0 mb-4">
+                  <div
+                    ref={textoRef}
+                    className="w-full h-full text-gray-800 leading-relaxed whitespace-pre-wrap font-serif text-lg md:text-xl transition-transform duration-500 ease-in-out"
+                    style={{
+                      columnWidth: '8000px', // Trava na largura exata do container para não estourar a tela
+                      columnGap: '32px',
+                      columnFill: 'auto',
+                      transform: `translateX(calc(-${paginaAtual} * (100% + 32px)))`
+                    }}
+                  >
+                    {capituloLendo.conteudo_texto}
+                  </div>
+                </div>
+
+                {/* CONTROLES DE PÁGINA */}
+                <div className="flex-shrink-0 flex items-center justify-between pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => setPaginaAtual(prev => Math.max(0, prev - 1))}
+                    disabled={paginaAtual === 0}
+                    className={`px-4 sm:px-6 py-2.5 font-bold rounded-xl text-sm transition-colors ${paginaAtual === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border border-gray-200 text-gray-800 hover:bg-gray-50 shadow-sm'}`}
+                  >
+                    ← Anterior
+                  </button>
+
+                  <span className="text-sm text-gray-500 font-bold tracking-widest">
+                    {paginaAtual + 1} / {totalPaginas}
+                  </span>
+
+                  {paginaAtual >= totalPaginas - 1 ? (
+                    <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="px-4 sm:px-6 py-2.5 font-bold rounded-xl text-sm transition-colors bg-green-500 text-white shadow-md hover:bg-green-600">
+                      Finalizar ✓
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setPaginaAtual(prev => Math.min(totalPaginas - 1, prev + 1))}
+                      className="px-4 sm:px-6 py-2.5 font-bold rounded-xl text-sm transition-colors bg-[#5a31f4] text-white shadow-md hover:bg-[#4924c9]"
+                    >
+                      Próxima →
+                    </button>
+                  )}
+                </div>
               </div>
-            </>
-          )}
+            ) : (
+              // MODO ÍNDICE DE CAPÍTULOS
+              <div className="flex-1 w-full">
+                {souDonoDoLivro && (
+                  <div className="bg-[#f8f7fb] rounded-2xl p-6 mb-8 border border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4">{capituloEditandoId ? "Editar Capítulo" : "Escrever Novo Capítulo"}</h3>
+                    <form onSubmit={salvarCapitulo} className="flex flex-col gap-4">
+                      <input type="text" placeholder="Título do Capítulo" value={tituloCapitulo} onChange={(e) => setTituloCapitulo(e.target.value)} required className="p-4 rounded-xl bg-white border border-gray-100 focus:ring-2 focus:ring-[#5a31f4] outline-none w-full" />
+                      <textarea placeholder="Escreva sua história aqui..." value={conteudoCapitulo} onChange={(e) => setConteudoCapitulo(e.target.value)} required className="p-4 rounded-xl bg-white border border-gray-100 focus:ring-2 focus:ring-[#5a31f4] outline-none w-full h-48 resize-y" />
+                      <div className="flex gap-3">
+                        <button type="submit" className="px-6 py-3 bg-[#5a31f4] text-white font-semibold rounded-xl text-sm hover:bg-[#4924c9] shadow-sm">{capituloEditandoId ? "Atualizar" : "Publicar"}</button>
+                        {capituloEditandoId && (
+                          <button type="button" onClick={() => { setCapituloEditandoId(null); setTituloCapitulo(''); setConteudoCapitulo(''); }} className="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-300">Cancelar</button>
+                        )}
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                <h3 className="text-xl font-bold mb-6">Índice de Capítulos</h3>
+                <div className="space-y-3">
+                  {capitulos.length === 0 ? (
+                    <p className="text-gray-500 py-8 bg-gray-50 text-center rounded-2xl border border-dashed border-gray-200">Nenhum capítulo publicado ainda.</p>
+                  ) : (
+                    capitulos.map((cap) => (
+                      <div key={cap.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-[#5a31f4] transition-colors cursor-pointer group" onClick={() => iniciarLeituraCapitulo(cap)}>
+                        <div>
+                          <h4 className="font-bold text-gray-900 text-lg group-hover:text-[#5a31f4] transition-colors">Capítulo {cap.ordem_leitura}: {cap.titulo_do_capitulo}</h4>
+                          <div className="flex gap-4 mt-1">
+                            <p className="text-xs text-gray-400 font-medium">👁 {cap.visualizacoes} Leituras</p>
+                            <p className="text-xs text-rose-400 font-medium">♡ {cap.curtidas_totales} Curtidas</p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => iniciarLeituraCapitulo(cap)} className="flex-1 sm:flex-none px-6 py-2.5 bg-[#f3efff] text-[#5a31f4] font-bold rounded-xl text-sm hover:bg-[#e9e2ff] transition-colors">Ler</button>
+                          {souDonoDoLivro && (
+                            <>
+                              <button onClick={() => iniciarEdicaoCapitulo(cap)} className="px-4 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm hover:bg-gray-200">Editar</button>
+                              <button onClick={() => deletarCapitulo(cap.id)} className="px-4 py-2.5 bg-red-50 text-red-500 font-bold rounded-xl text-sm hover:bg-red-100">Excluir</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
         </div>
         {renderizarModalNovaLista()}
       </div>
