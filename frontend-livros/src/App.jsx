@@ -46,6 +46,7 @@ function App() {
   const [conteudoCapitulo, setConteudoCapitulo] = useState('')
   const [capituloEditandoId, setCapituloEditandoId] = useState(null)
   const [capituloLendo, setCapituloLendo] = useState(null)
+  const [paginaAtual, setPaginaAtual] = useState(0) // Estado da página de leitura
 
   // --- Estados do Explorar ---
   const [tagsEmAlta, setTagsEmAlta] = useState([])
@@ -56,6 +57,32 @@ function App() {
   const [modalNovaLista, setModalNovaLista] = useState(false)
   const [formLista, setFormLista] = useState({ nome: '', descricao: '' })
   const [modalSalvarLivro, setModalSalvarLivro] = useState(false)
+
+  // ==========================================
+  // FUNÇÃO DE APOIO: PAGINAÇÃO
+  // ==========================================
+  const dividirTextoEmPaginas = (texto, limiteCaracteres = 1200) => {
+    if (!texto) return [];
+
+    const paragrafos = texto.split('\n');
+    const paginas = [];
+    let paginaCorrente = '';
+
+    paragrafos.forEach(paragrafo => {
+      if ((paginaCorrente.length + paragrafo.length) > limiteCaracteres && paginaCorrente.length > 0) {
+        paginas.push(paginaCorrente);
+        paginaCorrente = paragrafo + '\n';
+      } else {
+        paginaCorrente += paragrafo + '\n';
+      }
+    });
+
+    if (paginaCorrente.trim()) {
+      paginas.push(paginaCorrente);
+    }
+
+    return paginas.length > 0 ? paginas : [''];
+  };
 
   // ==========================================
   // EFEITOS DE INICIALIZAÇÃO E CONTROLE
@@ -150,11 +177,11 @@ function App() {
                   <span
                     onClick={(e) => {
                       e.stopPropagation();
-                      irParaPerfilAutor(autor.id); // CORRIGIDO: Usando autor.id em vez de livro.autor_id
+                      irParaPerfilAutor(autor.id);
                     }}
                     className="text-sm text-gray-500 hover:text-[#5a31f4] cursor-pointer underline"
                   >
-                    @{autor.username?.replace('@', '')} {/* CORRIGIDO */}
+                    @{autor.username?.replace('@', '')}
                   </span>
                 </div>
               </div>
@@ -370,6 +397,7 @@ function App() {
 
   const iniciarLeituraCapitulo = async (cap) => {
     setCapituloLendo(cap);
+    setPaginaAtual(0); // Reinicia a página ao abrir um capítulo novo
     try {
       await fetch(`${API_URL}/capitulos/${cap.id}/visualizar`, { method: 'POST' });
       buscarLivros();
@@ -420,7 +448,6 @@ function App() {
 
         const catalogo = {};
         for (let tagObj of tagsData) {
-          // CORRIGIDO: EncodeURIComponent e trim para evitar quebras com espaços/acentos
           const nomeDaTag = tagObj.nome.trim();
           const resLivros = await fetch(`${API_URL}/explorar/livros-por-tag?tag=${encodeURIComponent(nomeDaTag)}`);
           if (resLivros.ok) {
@@ -631,7 +658,6 @@ function App() {
             <button
               onClick={() => {
                 setLivroSelecionado(null);
-                // Se você veio de um perfil de autor, volta pra ele, se não, volta pro início
                 if (!usuarioExibido) {
                   setAbaAtual('inicio');
                 }
@@ -735,9 +761,10 @@ function App() {
 
           {capituloLendo ? (
             <div className="bg-[#f8f7fb] p-6 sm:p-10 rounded-3xl mt-8 shadow-inner border border-gray-100">
-              <button onClick={() => setCapituloLendo(null)} className="mb-8 text-gray-500 font-bold hover:text-[#5a31f4] flex items-center gap-2 transition-colors">
+              <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="mb-8 text-gray-500 font-bold hover:text-[#5a31f4] flex items-center gap-2 transition-colors">
                 ← Voltar para o Índice
               </button>
+
               <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">{capituloLendo.titulo_do_capitulo}</h2>
 
               <div className="flex items-center gap-4 mb-10 pb-6 border-b border-gray-200">
@@ -747,13 +774,50 @@ function App() {
                 </button>
               </div>
 
-              <div className="prose max-w-none text-gray-800 leading-loose whitespace-pre-wrap font-serif text-lg md:text-xl">
-                {capituloLendo.conteudo_texto}
-              </div>
+              {/* INÍCIO DO FORMATO LIVRO COM PAGINAÇÃO */}
+              <div className="min-h-[400px]">
+                {(() => {
+                  const paginas = dividirTextoEmPaginas(capituloLendo.conteudo_texto, 1200);
 
-              <button onClick={() => setCapituloLendo(null)} className="mt-16 w-full py-5 bg-gray-200 text-gray-800 font-bold rounded-2xl hover:bg-gray-300 transition-colors">
-                Terminei este capítulo
-              </button>
+                  return (
+                    <>
+                      <div className="prose max-w-none text-gray-800 leading-loose whitespace-pre-wrap font-serif text-lg md:text-xl">
+                        {paginas[paginaAtual]}
+                      </div>
+
+                      {/* Controles de Navegação de Página */}
+                      <div className="flex items-center justify-between mt-12 pt-6 border-t border-gray-200">
+                        <button
+                          onClick={() => setPaginaAtual(prev => Math.max(0, prev - 1))}
+                          disabled={paginaAtual === 0}
+                          className={`px-6 py-3 font-bold rounded-xl transition-colors ${paginaAtual === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
+                        >
+                          ← Página Anterior
+                        </button>
+
+                        <span className="text-sm text-gray-500 font-bold">
+                          {paginaAtual + 1} de {paginas.length}
+                        </span>
+
+                        <button
+                          onClick={() => setPaginaAtual(prev => Math.min(paginas.length - 1, prev + 1))}
+                          disabled={paginaAtual === paginas.length - 1}
+                          className={`px-6 py-3 font-bold rounded-xl transition-colors ${paginaAtual === paginas.length - 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#5a31f4] text-white hover:bg-[#4924c9]'}`}
+                        >
+                          Próxima Página →
+                        </button>
+                      </div>
+
+                      {/* Botão de finalizar aparece apenas na última página */}
+                      {paginaAtual === paginas.length - 1 && (
+                        <button onClick={() => { setCapituloLendo(null); setPaginaAtual(0); }} className="mt-8 w-full py-5 bg-gray-200 text-gray-800 font-bold rounded-2xl hover:bg-gray-300 transition-colors">
+                          Terminei este capítulo
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           ) : (
             <>
